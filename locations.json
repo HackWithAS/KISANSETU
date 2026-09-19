@@ -1,0 +1,151 @@
+{
+  "version": "1.0.0",
+  "name": "Kisan Setu Location Data Contract",
+  "status": "SOURCE_REFERENCE_ONLY",
+  "description": "Defines the State → District → Block → Village data contract. No fake or guessed village records are included.",
+  "hierarchy": [
+    "state",
+    "district",
+    "block",
+    "village"
+  ],
+  "recommended_primary_source": {
+    "name": "Local Government Directory (LGD)",
+    "publisher": "Ministry of Panchayati Raj, Government of India",
+    "catalog_url": "https://data.gov.in/catalog/local-government-directory-lgd",
+    "download_url": "https://lgdirectory.gov.in/demo/downloadDirectory.do",
+    "coverage": [
+      "states",
+      "districts",
+      "sub-districts",
+      "villages",
+      "development_blocks"
+    ],
+    "refresh_note": "The official OGD catalog describes LGD village/state/district/sub-district resources as being updated monthly."
+  },
+  "legacy_reference_source": {
+    "name": "Census 2011 Location Code Directory",
+    "publisher": "Office of the Registrar General & Census Commissioner, India",
+    "url": "https://censusindia.gov.in/nada/index.php/catalog/42648/study-description",
+    "year": 2011,
+    "use": "Fallback/reference only; not a replacement for current LGD data."
+  },
+  "record_schema": {
+    "state": {
+      "id": "string",
+      "name_en": "string",
+      "name_local": "string|null",
+      "code": "string|null"
+    },
+    "district": {
+      "id": "string",
+      "state_id": "string",
+      "name_en": "string",
+      "name_local": "string|null",
+      "code": "string|null"
+    },
+    "block": {
+      "id": "string",
+      "district_id": "string",
+      "name_en": "string",
+      "name_local": "string|null",
+      "code": "string|null"
+    },
+    "village": {
+      "id": "string",
+      "block_id": "string|null",
+      "district_id": "string",
+      "state_id": "string",
+      "name_en": "string",
+      "name_local": "string|null",
+      "code": "string|null"
+    }
+  },
+  "storage_recommendation": {
+    "do_not_embed_full_dataset_in_app_js": true,
+    "preferred_runtime_pattern": "Load location options by parent ID (state → district → block → village).",
+    "preferred_firebase_pattern": "Store only the farmer's selected location IDs/codes plus display names in the farmer profile.",
+    "preferred_import_pattern": "Import verified LGD records into a dedicated Firestore collection or serve them through a backend/API."
+  },
+  "development_sample": {
+    "label": "DEVELOPMENT DATA — NOT A COMPLETE OR CURRENT INDIA DATASET",
+    "source": "LGD-derived public mirror of the Government of India LGD data",
+    "source_url": "https://raw.githubusercontent.com/planemad/india-local-government-directory/main/administrative/blocks.csv",
+    "state": {
+      "code": "9",
+      "name_en": "UTTAR PRADESH",
+      "district": {
+        "code": "130",
+        "name_en": "BAREILLY",
+        "blocks": [
+          {
+            "code": "959",
+            "name_en": "AALAMPUR JAFARABAD"
+          },
+          {
+            "code": "960",
+            "name_en": "BAHERI"
+          },
+          {
+            "code": "961",
+            "name_en": "BHADPURA"
+          },
+          {
+            "code": "962",
+            "name_en": "BHOJIPURA"
+          },
+          {
+            "code": "963",
+            "name_en": "BHUTA"
+          },
+          {
+            "code": "964",
+            "name_en": "BITHIRI CHAINPUR"
+          },
+          {
+            "code": "965",
+            "name_en": "DAMKHAUDA"
+          },
+          {
+            "code": "966",
+            "name_en": "FARIDPUR"
+          },
+          {
+            "code": "967",
+            "name_en": "FATEHGANJ WEST"
+          },
+          {
+            "code": "968",
+            "name_en": "KYARA"
+          },
+          {
+            "code": "969",
+            "name_en": "MAJHGAWAN"
+          },
+          {
+            "code": "970",
+            "name_en": "MIRGANJ"
+          },
+          {
+            "code": "971",
+            "name_en": "NAWABGANJ"
+          },
+          {
+            "code": "972",
+            "name_en": "RAMNAGAR"
+          },
+          {
+            "code": "973",
+            "name_en": "SHERGARH"
+          }
+        ],
+        "villages": []
+      }
+    }
+  },
+  "integration_notes": [
+    "Do not treat development_sample as the full location database.",
+    "Village options should remain empty until verified village-level data is imported.",
+    "Keep the adapter independent from signup UI so the data source can be replaced later without changing form logic."
+  ]
+}

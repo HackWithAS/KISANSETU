@@ -2,12 +2,14 @@ import { auth, db } from "./firebase-config.js";
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged,
   signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider,
-  RecaptchaVerifier, signInWithPhoneNumber
+  RecaptchaVerifier, signInWithPhoneNumber, GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   doc, getDoc, setDoc, updateDoc, addDoc, collection, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+import { STATES, DISTRICTS_BY_STATE_CODE, BLOCKS_BY_DISTRICT_CODE, VILLAGES_BY_BLOCK_CODE } from "./data/locations.js";
+import { CROPS } from "./data/crops.js";
 
 /* A server endpoint is required for the two operations that need the Admin
    SDK (creating a center's login and resetting a password after phone
@@ -36,6 +38,7 @@ const ICONS = {
   alert: '<path d="M12 3l10 18H2Z"/><path d="M12 10v4"/><path d="M12 17h.01"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  google: '<path d="M21.6 12.2c0-.7-.06-1.4-.19-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.75 3-4.3 3-7.3Z"/><path d="M12 22c2.7 0 5-.9 6.6-2.5l-3.2-2.5c-.9.6-2.1 1-3.4 1-2.6 0-4.8-1.75-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22Z"/><path d="M6.4 13.9a6 6 0 0 1 0-3.8V7.5H3.1a10 10 0 0 0 0 9l3.3-2.6Z"/><path d="M12 6.1c1.5 0 2.8.5 3.8 1.5l2.8-2.8A10 10 0 0 0 3.1 7.5l3.3 2.6C7.2 7.85 9.4 6.1 12 6.1Z"/>',
   eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6.5 0 10 7 10 7a15.6 15.6 0 0 1-3.4 4.3M6.6 6.6C4 8.3 2 12 2 12s3.5 7 10 7c1.4 0 2.7-.3 3.8-.8"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   checkCircle: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
   minus: '<path d="M5 12h14"/>',
@@ -58,13 +61,18 @@ const I18N = {
     about: "हमारे बारे में", help: "सूचना", captcha: "सत्यापन कोड", captcha_refresh: "नया कोड",
     show_password: "पासवर्ड दिखाएँ", hide_password: "पासवर्ड छिपाएँ",
     login_error: "गलत उपयोगकर्ता नाम या पासवर्ड", network_error: "इंटरनेट कनेक्शन उपलब्ध नहीं है।",
+    wrong_password: "गलत पासवर्ड", wrong_username: "उपयोगकर्ता नाम गलत है", too_many_attempts: "बहुत अधिक प्रयास, कुछ समय बाद पुनः प्रयास करें",
     session_expired: "कृपया दोबारा लॉगिन करें।", otp_invalid: "OTP गलत है या समाप्त हो गया है।",
     field_required: "यह फ़ील्ड आवश्यक है", captcha_wrong: "सत्यापन कोड गलत है",
     passwords_no_match: "पासवर्ड मेल नहीं खाते", weak_password: "पासवर्ड कम से कम 6 अक्षर का होना चाहिए",
     step: "चरण", next: "आगे", back: "पीछे", submit: "जमा करें", save: "सहेजें", cancel: "रद्द करें", confirm: "पुष्टि करें",
     full_name: "पूरा नाम", state: "राज्य", district: "ज़िला", block: "ब्लॉक", village: "गाँव",
-    land_area: "भूमि (हेक्टेयर में)", land_crops: "मुख्य फ़सलें", accept_terms: "मैं नियम व शर्तें स्वीकार करता/करती हूँ",
-    signup_step1: "मूल जानकारी", signup_step2: "स्थान", signup_step3: "भूमि विवरण", signup_step4: "सत्यापन",
+    select_state: "राज्य चुनें", select_district: "ज़िला चुनें", select_block: "ब्लॉक चुनें", select_village: "गाँव चुनें",
+    location_data_pending: "इस ज़िले/ब्लॉक के लिए डेटा अभी जोड़ा जाना बाकी है",
+    main_crops: "मुख्य फ़सलें", main_crops_hint: "एक या अधिक फ़सलें चुनें", accept_terms: "मैं नियम व शर्तें स्वीकार करता/करती हूँ",
+    signup_step1: "मूल जानकारी", signup_step2: "स्थान", signup_step3: "मुख्य फ़सलें", signup_step4: "सत्यापन",
+    continue_with_google: "Google से जारी रखें", or_divider: "या",
+    complete_profile: "प्रोफ़ाइल पूरी करें", complete_profile_hint: "आपका Google खाता जुड़ गया है — जारी रखने के लिए कुछ और जानकारी दें",
     otp_sent: "OTP भेजा गया", enter_otp: "6 अंकों का OTP दर्ज करें", resend_otp: "OTP फिर भेजें",
     new_password: "नया पासवर्ड", password_changed: "पासवर्ड सफलतापूर्वक बदल दिया गया",
     forgot_identify: "उपयोगकर्ता नाम या मोबाइल नंबर दर्ज करें",
@@ -97,7 +105,8 @@ const I18N = {
     mark_served: "पूर्ण करें", mark_noshow: "अनुपस्थित", weight: "वज़न (क्विंटल)",
     center_status: "केंद्र स्थिति", counters: "काउंटर", capacity_today: "आज की क्षमता",
     register_new_center: "नया केंद्र पंजीकृत करें", center_name: "केंद्र का नाम", center_code: "केंद्र कोड (लैटिन)",
-    center_capacity: "क्षमता (क्विंटल/दिन)", num_counters: "काउंटर की संख्या", crops_list: "स्वीकृत फ़सलें (अल्पविराम से अलग)",
+    center_capacity: "क्षमता (क्विंटल/दिन)", num_counters: "काउंटर की संख्या", crops_list: "स्वीकृत फ़सलें",
+    village_address: "गाँव / पता", village_address_hint: "गली, लैंडमार्क आदि (वैकल्पिक)",
     admin_details: "एडमिन विवरण", admin_name: "एडमिन का नाम", create_center: "केंद्र बनाएँ",
     center_created: "केंद्र बनाया गया", initial_credentials: "प्रारंभिक लॉगिन विवरण",
     overview_title: "अवलोकन", total_centers: "कुल केंद्र", open_centers: "खुले केंद्र", total_farmers: "पंजीकृत किसान", total_purchases_today: "आज की खरीद",
@@ -116,13 +125,18 @@ const I18N = {
     about: "About", help: "Help", captcha: "Verification code", captcha_refresh: "New code",
     show_password: "Show password", hide_password: "Hide password",
     login_error: "Incorrect username or password", network_error: "No internet connection.",
+    wrong_password: "Incorrect password", wrong_username: "Incorrect username", too_many_attempts: "Too many attempts, try again later",
     session_expired: "Please sign in again.", otp_invalid: "OTP is incorrect or has expired.",
     field_required: "This field is required", captcha_wrong: "Verification code is incorrect",
     passwords_no_match: "Passwords do not match", weak_password: "Password must be at least 6 characters",
     step: "Step", next: "Next", back: "Back", submit: "Submit", save: "Save", cancel: "Cancel", confirm: "Confirm",
     full_name: "Full name", state: "State", district: "District", block: "Block", village: "Village",
-    land_area: "Land (hectares)", land_crops: "Main crops", accept_terms: "I accept the terms and conditions",
-    signup_step1: "Basic details", signup_step2: "Location", signup_step3: "Land details", signup_step4: "Verification",
+    select_state: "Select state", select_district: "Select district", select_block: "Select block", select_village: "Select village",
+    location_data_pending: "Data for this district/block hasn't been added yet",
+    main_crops: "Main crops", main_crops_hint: "Choose one or more crops", accept_terms: "I accept the terms and conditions",
+    signup_step1: "Basic details", signup_step2: "Location", signup_step3: "Main crops", signup_step4: "Verification",
+    continue_with_google: "Continue with Google", or_divider: "or",
+    complete_profile: "Complete your profile", complete_profile_hint: "Your Google account is connected — a few more details to continue",
     otp_sent: "OTP sent", enter_otp: "Enter the 6-digit OTP", resend_otp: "Resend OTP",
     new_password: "New password", password_changed: "Password changed successfully",
     forgot_identify: "Enter your username or mobile number",
@@ -155,7 +169,8 @@ const I18N = {
     mark_served: "Mark served", mark_noshow: "No-show", weight: "Weight (quintal)",
     center_status: "Center status", counters: "Counters", capacity_today: "Today's capacity",
     register_new_center: "Register new center", center_name: "Center name", center_code: "Center code (Latin)",
-    center_capacity: "Capacity (quintal/day)", num_counters: "Number of counters", crops_list: "Crops accepted (comma separated)",
+    center_capacity: "Capacity (quintal/day)", num_counters: "Number of counters", crops_list: "Crops accepted",
+    village_address: "Village / address", village_address_hint: "Street, landmark, etc. (optional)",
     admin_details: "Admin details", admin_name: "Admin name", create_center: "Create center",
     center_created: "Center created", initial_credentials: "Initial login details",
     overview_title: "Overview", total_centers: "Total centers", open_centers: "Centers open", total_farmers: "Registered farmers", total_purchases_today: "Purchases today",
@@ -183,6 +198,10 @@ const store = {
   govTab: "overview",
   signupStep: 1,
   signupData: { crops: [] },
+  googleProfile: null,
+  googleStep: 1,
+  googleData: { crops: [] },
+  centerRegisterData: { crops: [] },
   forgotStep: "identify",
   forgotData: {},
   captcha: { a: 1, b: 1 },
@@ -250,8 +269,13 @@ function govEmail(officialId) { return `${officialId.trim().toLowerCase()}@g.kis
 
 async function callFunction(name, payload) {
   if (!FUNCTIONS_BASE_URL) throw new Error("functions-not-configured");
+  // createCenterAccount and resetPasswordWithPhone both verify this token
+  // server-side with the Admin SDK before doing anything privileged.
+  const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
   const res = await fetch(`${FUNCTIONS_BASE_URL}/${name}`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+    body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "request-failed");
   return res.json();
@@ -262,7 +286,17 @@ onAuthStateChanged(auth, async (user) => {
   if (!user) { store.user = null; store.profile = null; store.screen = "login"; mount(); return; }
   try {
     const snap = await getDoc(doc(db, "users", user.uid));
-    if (!snap.exists()) { store.user = user; store.screen = "login"; mount(); return; }
+    if (!snap.exists()) {
+      const isGoogle = user.providerData.some((p) => p.providerId === "google.com");
+      if (isGoogle) {
+        store.user = user;
+        store.googleProfile = { uid: user.uid, name: user.displayName || "", email: user.email || "", photo: user.photoURL || "" };
+        store.screen = "googleComplete";
+        mount();
+        return;
+      }
+      store.user = user; store.screen = "login"; mount(); return;
+    }
     store.user = user; store.profile = snap.data();
     store.lang = store.profile.language || store.lang;
     store.theme = store.profile.theme || store.theme;
@@ -295,8 +329,17 @@ async function handleFarmerLogin(e) {
     await signInWithEmailAndPassword(auth, farmerEmail(username), password);
   } catch (err) {
     setBtnLoading(form, false);
-    showAuthError(form, err.code === "auth/network-request-failed" ? t("network_error") : t("login_error"));
+    showAuthError(form, authErrorMessage(err));
     newCaptcha(); paintLoginForm();
+  }
+}
+function authErrorMessage(err) {
+  switch (err.code) {
+    case "auth/network-request-failed": return t("network_error");
+    case "auth/user-not-found": return t("wrong_username");
+    case "auth/wrong-password": return t("wrong_password");
+    case "auth/too-many-requests": return t("too_many_attempts");
+    default: return t("login_error");
   }
 }
 
@@ -315,7 +358,7 @@ async function handleCenterLogin(e) {
     await signInWithEmailAndPassword(auth, centerEmail(centerId, adminId), password);
   } catch (err) {
     setBtnLoading(form, false);
-    showAuthError(form, t("login_error"));
+    showAuthError(form, authErrorMessage(err));
   }
 }
 
@@ -334,8 +377,19 @@ async function handleGovLogin(e) {
     await signInWithEmailAndPassword(auth, govEmail(officialId), password);
   } catch (err) {
     setBtnLoading(form, false);
-    showAuthError(form, t("login_error"));
+    showAuthError(form, authErrorMessage(err));
     newCaptcha(); paintLoginForm();
+  }
+}
+
+const googleProvider = new GoogleAuthProvider();
+async function handleGoogleLogin() {
+  try {
+    await signInWithPopup(auth, googleProvider);
+    // onAuthStateChanged takes over from here: existing profile -> dashboard,
+    // no profile yet -> "googleComplete" screen.
+  } catch (err) {
+    if (err.code !== "auth/popup-closed-by-user") showToast(t("network_error"));
   }
 }
 
@@ -364,6 +418,59 @@ async function handleForcePasswordChange(e) {
 
 function logout() { signOut(auth); }
 
+/* ---- location selector (India -> State -> District -> Block -> Village) ----
+   Districts/blocks/villages come from data/locations.js. Where that dataset
+   has no entries yet for a given state/district, the step shows an inline
+   notice instead of inventing options, and does not require that field. */
+function districtsFor(stateCode) { return DISTRICTS_BY_STATE_CODE[stateCode] || []; }
+function blocksFor(districtCode) { return BLOCKS_BY_DISTRICT_CODE[districtCode] || []; }
+function villagesFor(blockCode) { return VILLAGES_BY_BLOCK_CODE[blockCode] || []; }
+function nameFromList(list, code) {
+  const row = list.find((r) => r.code === code);
+  return row ? (store.lang === "hi" ? row.nameHi : row.name) : "";
+}
+function locationSelectHtml(name, label, options, value, disabled) {
+  const opts = options.map((o) => `<option value="${esc(o.code)}" ${o.code === value ? "selected" : ""}>${esc(store.lang === "hi" ? o.nameHi : o.name)}</option>`).join("");
+  return `<div class="field"><label>${label}</label>
+    <select name="${name}" ${disabled ? "disabled" : "required"} data-loc-level="${name}">
+      <option value="">${t("select_" + name)}</option>${opts}
+    </select></div>`;
+}
+function locationStepHtml(d) {
+  const districts = districtsFor(d.stateCode);
+  const blocks = districts.length ? blocksFor(d.districtCode) : [];
+  const villages = blocks.length ? villagesFor(d.blockCode) : [];
+  let html = locationSelectHtml("state", t("state"), STATES, d.stateCode, false);
+  if (!d.stateCode) return html;
+  html += districts.length
+    ? locationSelectHtml("district", t("district"), districts, d.districtCode, false)
+    : `<p class="tiny muted mt-1">${t("location_data_pending")}</p>`;
+  if (districts.length && d.districtCode) {
+    html += blocks.length
+      ? locationSelectHtml("block", t("block"), blocks, d.blockCode, false)
+      : `<p class="tiny muted mt-1">${t("location_data_pending")}</p>`;
+  }
+  if (blocks.length && d.blockCode) {
+    html += villages.length
+      ? locationSelectHtml("village", t("village"), villages, d.villageCode, false)
+      : `<p class="tiny muted mt-1">${t("location_data_pending")}</p>`;
+  }
+  return html;
+}
+function wireLocationSelects(root, onChange) {
+  root.querySelectorAll("[data-loc-level]").forEach((sel) => {
+    sel.addEventListener("change", () => onChange(sel.dataset.locLevel, sel.value));
+  });
+}
+
+/* ---- main crops multi-select ---- */
+function cropsStepHtml(selected) {
+  return `<p class="tiny muted mb-1">${t("main_crops_hint")}</p>
+    <div class="crop-grid">${CROPS.map((c) => `
+      <label class="crop-chip"><input type="checkbox" name="crops" value="${esc(c.code)}" ${selected.includes(c.code) ? "checked" : ""}>
+        <span>${esc(store.lang === "hi" ? c.nameHi : c.name)}</span></label>`).join("")}</div>`;
+}
+
 /* ---- farmer signup ---- */
 function updateSignupField(k, v) { store.signupData[k] = v; }
 function signupNext(e) {
@@ -382,13 +489,10 @@ function signupNext(e) {
     if (d.password !== d.confirmPassword) { setFieldError(form, "confirmPassword", t("passwords_no_match")); bad = true; }
     if (bad) return;
   } else if (store.signupStep === 2) {
-    d.state = form.state.value.trim(); d.district = form.district.value.trim();
-    d.block = form.block.value.trim(); d.village = form.village.value.trim();
-    let bad = false;
-    ["state", "district", "block", "village"].forEach((k) => { if (!d[k]) { setFieldError(form, k, t("field_required")); bad = true; } });
-    if (bad) return;
+    if (!d.stateCode) { setFieldError(form, "state", t("field_required")); return; }
   } else if (store.signupStep === 3) {
-    d.landArea = form.landArea.value.trim(); d.landCrops = form.landCrops.value.trim();
+    d.crops = Array.from(form.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
+    if (!d.crops.length) { showAuthError(form, t("field_required")); return; }
   } else if (store.signupStep === 4) {
     const captchaVal = form.captcha.value, terms = form.terms.checked;
     let bad = false;
@@ -402,6 +506,17 @@ function signupNext(e) {
 }
 function signupBack() { store.signupStep = Math.max(1, store.signupStep - 1); paintScreen(); }
 
+function locationPayload(d) {
+  return {
+    country: "India",
+    state: nameFromList(STATES, d.stateCode) || null, stateCode: d.stateCode || null,
+    district: nameFromList(districtsFor(d.stateCode), d.districtCode) || null, districtCode: d.districtCode || null,
+    block: nameFromList(blocksFor(d.districtCode), d.blockCode) || null, blockCode: d.blockCode || null,
+    village: nameFromList(villagesFor(d.blockCode), d.villageCode) || null, villageCode: d.villageCode || null,
+    latitude: d.latitude || null, longitude: d.longitude || null,
+  };
+}
+
 async function submitSignup(form) {
   const d = store.signupData;
   setBtnLoading(form, true);
@@ -409,12 +524,12 @@ async function submitSignup(form) {
     const cred = await createUserWithEmailAndPassword(auth, farmerEmail(d.username), d.password);
     await setDoc(doc(db, "users", cred.user.uid), {
       uid: cred.user.uid, role: "farmer", name: d.fullName, username: d.username,
-      language: store.lang, theme: "light", status: "active", createdAt: serverTimestamp(),
+      authProvider: "password", language: store.lang, theme: "light", status: "active", createdAt: serverTimestamp(),
     });
+    const loc = locationPayload(d);
     await setDoc(doc(db, "farmers", cred.user.uid), {
       name: d.fullName, username: d.username, mobile: d.mobile,
-      state: d.state, district: d.district, block: d.block, village: d.village,
-      landArea: d.landArea || null, landCrops: d.landCrops || null, createdAt: serverTimestamp(),
+      ...loc, mainCrops: d.crops || [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
     store.signupData = { crops: [] }; store.signupStep = 1;
   } catch (err) {
@@ -534,6 +649,8 @@ function loginFormHtml() {
       ${captchaHtml()}
       <div class="auth-links-row"><span></span><button type="button" class="link-btn" id="go-forgot">${t("forgot_password")}</button></div>
       <button class="btn block mt-2" type="submit">${t("sign_in")}</button>
+      <div class="auth-divider"><span>${t("or_divider")}</span></div>
+      <button type="button" class="btn ghost block google-btn" id="go-google">${ic("google", 16)}${t("continue_with_google")}</button>
       <p class="auth-switch">${t("no_account")} <button type="button" class="link-btn" id="go-signup">${t("sign_up")}</button></p>
     </form>`;
   }
@@ -575,6 +692,8 @@ function wireLoginForm() {
   if (goForgot) goForgot.addEventListener("click", () => { store.screen = "forgot"; store.forgotStep = "identify"; paintScreen(); });
   const goSignup = document.getElementById("go-signup");
   if (goSignup) goSignup.addEventListener("click", () => { store.screen = "signup"; store.signupStep = 1; paintScreen(); });
+  const goGoogle = document.getElementById("go-google");
+  if (goGoogle) goGoogle.addEventListener("click", handleGoogleLogin);
   const refresh = document.getElementById("captcha-refresh");
   if (refresh) refresh.addEventListener("click", () => { newCaptcha(); paintLoginForm(); });
   wirePasswordToggles(form);
@@ -650,13 +769,9 @@ function screenSignup() {
       <div class="field"><label>${t("password")}</label><input name="password" type="password" required></div>
       <div class="field"><label>${t("confirm_password")}</label><input name="confirmPassword" type="password" required></div>`;
   } else if (store.signupStep === 2) {
-    fields = `<div class="field"><label>${t("state")}</label><input name="state" value="${esc(d.state || "उत्तर प्रदेश")}" required></div>
-      <div class="field"><label>${t("district")}</label><input name="district" value="${esc(d.district || "")}" required></div>
-      <div class="field"><label>${t("block")}</label><input name="block" value="${esc(d.block || "")}" required></div>
-      <div class="field"><label>${t("village")}</label><input name="village" value="${esc(d.village || "")}" required></div>`;
+    fields = `<div id="location-fields">${locationStepHtml(d)}</div>`;
   } else if (store.signupStep === 3) {
-    fields = `<div class="field"><label>${t("land_area")}</label><input name="landArea" inputmode="decimal" value="${esc(d.landArea || "")}"></div>
-      <div class="field"><label>${t("land_crops")}</label><input name="landCrops" placeholder="गेहूँ, धान" value="${esc(d.landCrops || "")}"></div>`;
+    fields = cropsStepHtml(d.crops || []);
   } else {
     fields = `${captchaHtml()}
       <label class="checkbox-row"><input type="checkbox" name="terms" required><span>${t("accept_terms")}</span></label>`;
@@ -674,6 +789,80 @@ function screenSignup() {
         </div>
       </form>
       <p class="auth-switch">${t("have_account")} <button type="button" class="link-btn" id="signup-exit">${t("sign_in")}</button></p>
+    </div>
+  </div>`;
+}
+
+/* ---- Google first-time profile completion (mobile, location, crops) ----
+   Google already supplies name, email, uid and photo; it never supplies a
+   phone number, so that is always asked here, along with location and crops
+   — the same fields a password-based farmer signup collects, minus the
+   username/password which Google auth already replaces. */
+function googleCompleteNext(e) {
+  e.preventDefault();
+  const form = e.target;
+  clearFormErrors(form);
+  const d = store.googleData;
+  if (store.googleStep === 1) {
+    d.mobile = form.mobile.value.trim();
+    if (!/^[6-9]\d{9}$/.test(d.mobile)) { setFieldError(form, "mobile", t("field_required")); return; }
+  } else if (store.googleStep === 2) {
+    if (!d.stateCode) { setFieldError(form, "state", t("field_required")); return; }
+  } else if (store.googleStep === 3) {
+    d.crops = Array.from(form.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
+    if (!d.crops.length) { showAuthError(form, t("field_required")); return; }
+    return submitGoogleProfile(form);
+  }
+  store.googleStep++;
+  paintScreen();
+}
+function googleCompleteBack() { store.googleStep = Math.max(1, store.googleStep - 1); paintScreen(); }
+
+async function submitGoogleProfile(form) {
+  const d = store.googleData, g = store.googleProfile;
+  setBtnLoading(form, true);
+  try {
+    await setDoc(doc(db, "users", g.uid), {
+      uid: g.uid, role: "farmer", name: g.name, email: g.email, photo: g.photo || null,
+      authProvider: "google", language: store.lang, theme: "light", status: "active", createdAt: serverTimestamp(),
+    });
+    const loc = locationPayload(d);
+    await setDoc(doc(db, "farmers", g.uid), {
+      name: g.name, email: g.email, mobile: d.mobile,
+      ...loc, mainCrops: d.crops || [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    store.googleProfile = null; store.googleStep = 1; store.googleData = { crops: [] };
+  } catch (err) {
+    setBtnLoading(form, false);
+    showAuthError(form, t("network_error"));
+  }
+}
+
+function screenGoogleComplete() {
+  const d = store.googleData, g = store.googleProfile || {};
+  const steps = [t("mobile"), t("signup_step2"), t("signup_step3")];
+  const stepHtml = `<div class="stepper" aria-hidden="true">${steps.map((_, i) => `<span class="step ${i + 1 < store.googleStep ? "done" : i + 1 === store.googleStep ? "active" : ""}"></span>`).join("")}</div>`;
+  let fields = "";
+  if (store.googleStep === 1) {
+    fields = `<div class="field"><label>${t("mobile")}</label><input name="mobile" inputmode="numeric" maxlength="10" value="${esc(d.mobile || "")}" required></div>`;
+  } else if (store.googleStep === 2) {
+    fields = `<div id="location-fields">${locationStepHtml(d)}</div>`;
+  } else {
+    fields = cropsStepHtml(d.crops || []);
+  }
+  return `<div class="auth-panel" style="min-height:100vh">
+    <div class="auth-card">
+      <div class="auth-brand"><div class="glyph">${ic("sprout", 20)}</div><div class="auth-brand-name brand-face">${t("brand")}</div></div>
+      <h1 style="font-size:19px">${t("complete_profile")}</h1>
+      <p class="muted mt-1 mb-1">${t("complete_profile_hint")}</p>
+      ${stepHtml}
+      <form id="google-complete-form" novalidate>
+        ${fields}
+        <div class="row gap-s mt-2">
+          ${store.googleStep > 1 ? `<button type="button" class="btn ghost" id="google-back">${t("back")}</button>` : ""}
+          <button type="submit" class="btn" style="flex:1">${store.googleStep === 3 ? t("submit") : t("next")}</button>
+        </div>
+      </form>
     </div>
   </div>`;
 }
@@ -1037,23 +1226,21 @@ function govBody() {
   return "";
 }
 function govRegisterForm() {
+  const d = store.centerRegisterData || (store.centerRegisterData = {});
   return `<h2 class="section-title">${t("register_new_center")}</h2>
-  <div class="card" style="max-width:520px">
+  <div class="card" style="max-width:560px">
     <form id="gov-register-form" novalidate>
-      <div class="field"><label>${t("center_name")}</label><input name="centerName" required></div>
-      <div class="field"><label>${t("center_code")}</label><input name="centerCode" maxlength="8" placeholder="FTB" required></div>
+      <div class="field"><label>${t("center_name")}</label><input name="centerName" value="${esc(d.centerName || "")}" required></div>
+      <div class="field"><label>${t("center_code")}</label><input name="centerCode" maxlength="8" placeholder="FTB" value="${esc(d.centerCode || "")}" required></div>
+      <div id="center-location-fields">${locationStepHtml(d)}</div>
+      <div class="field"><label>${t("village_address")}</label><input name="address" placeholder="${t("village_address_hint")}" value="${esc(d.address || "")}"></div>
       <div class="grid-2">
-        <div class="field"><label>${t("district")}</label><input name="district" required></div>
-        <div class="field"><label>${t("block")}</label><input name="block" required></div>
+        <div class="field"><label>${t("center_capacity")}</label><input name="capacity" inputmode="numeric" value="${esc(d.capacity || "")}" required></div>
+        <div class="field"><label>${t("num_counters")}</label><input name="counters" inputmode="numeric" value="${esc(d.counters || "2")}" required></div>
       </div>
-      <div class="field"><label>${t("village")}</label><input name="village" required></div>
-      <div class="grid-2">
-        <div class="field"><label>${t("center_capacity")}</label><input name="capacity" inputmode="numeric" required></div>
-        <div class="field"><label>${t("num_counters")}</label><input name="counters" inputmode="numeric" value="2" required></div>
-      </div>
-      <div class="field"><label>${t("crops_list")}</label><input name="crops" placeholder="गेहूँ, धान, सरसों" required></div>
-      <div class="field"><label>${t("mobile")}</label><input name="mobile" inputmode="numeric" maxlength="10" required></div>
-      <div class="field"><label>${t("admin_name")}</label><input name="adminName" required></div>
+      <div class="field"><label>${t("crops_list")}</label>${cropsStepHtml(d.crops || [])}</div>
+      <div class="field"><label>${t("mobile")}</label><input name="mobile" inputmode="numeric" maxlength="10" value="${esc(d.mobile || "")}" required></div>
+      <div class="field"><label>${t("admin_name")}</label><input name="adminName" value="${esc(d.adminName || "")}" required></div>
       <button class="btn" type="submit">${t("create_center")}</button>
     </form>
   </div>`;
@@ -1138,18 +1325,35 @@ function wireCenterSettings() {
 function wireGovRegister() {
   const form = document.getElementById("gov-register-form");
   if (!form) return;
+  wireLocationSelects(document, (level, value) => {
+    const d = store.centerRegisterData;
+    if (level === "state") { d.stateCode = value; d.districtCode = null; d.blockCode = null; d.villageCode = null; }
+    else if (level === "district") { d.districtCode = value; d.blockCode = null; d.villageCode = null; }
+    else if (level === "block") { d.blockCode = value; d.villageCode = null; }
+    else if (level === "village") { d.villageCode = value; }
+    // Preserve the rest of the form's entered values across this targeted repaint.
+    d.centerName = form.centerName.value; d.centerCode = form.centerCode.value;
+    d.address = form.address.value; d.capacity = form.capacity.value; d.counters = form.counters.value;
+    d.mobile = form.mobile.value; d.adminName = form.adminName.value;
+    d.crops = Array.from(form.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
+    mount();
+  });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = form;
+    clearFormErrors(f);
     const centerCode = f.centerCode.value.trim().toUpperCase();
     const mobile = f.mobile.value.trim();
+    const d = store.centerRegisterData;
+    if (!d.stateCode) { setFieldError(f, "state", t("field_required")); return; }
+    const crops = Array.from(f.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
     const centerId = "C" + Date.now().toString(36).toUpperCase();
+    const loc = locationPayload(d);
     const centerDoc = {
       centerId, centerName: f.centerName.value.trim(), centerCode, registeredMobile: mobile,
-      district: f.district.value.trim(), block: f.block.value.trim(), village: f.village.value.trim(),
+      ...loc, address: f.address.value.trim() || null,
       capacity: Number(f.capacity.value) || 0, counters: Number(f.counters.value) || 1,
-      acceptedCrops: f.crops.value.split(",").map((s) => s.trim()).filter(Boolean),
-      status: "closed", createdAt: serverTimestamp(),
+      acceptedCrops: crops, status: "closed", createdAt: serverTimestamp(),
     };
     try {
       await setDoc(doc(db, "centers", centerId), centerDoc);
@@ -1163,7 +1367,8 @@ function wireGovRegister() {
           : " — deploy functions/index.js to Firebase to activate this login.";
       }
       openModal({ title: t("center_created"), body: credentialsNote, confirmText: t("confirm") });
-      form.reset();
+      store.centerRegisterData = { crops: [] };
+      paintScreen();
     } catch (err) { showToast(t("network_error")); }
   });
 }
@@ -1175,6 +1380,7 @@ function screenHtml() {
   if (store.screen === "signup") return screenSignup();
   if (store.screen === "forgot") return screenForgot();
   if (store.screen === "forcePassword") return screenForcePassword();
+  if (store.screen === "googleComplete") return screenGoogleComplete();
   if (store.screen === "farmer") return appShellHtml(farmerBody());
   if (store.screen === "center") return appShellHtml(centerBody());
   if (store.screen === "gov") return appShellHtml(govBody());
@@ -1200,6 +1406,16 @@ function wireScreen() {
     if (!store.signupData.captcha) newCaptcha();
     const form = document.getElementById("signup-form");
     if (form) { form.addEventListener("submit", signupNext); wirePasswordToggles(form); }
+    if (store.signupStep === 2) {
+      wireLocationSelects(document, (level, value) => {
+        const d = store.signupData;
+        if (level === "state") { d.stateCode = value; d.districtCode = null; d.blockCode = null; d.villageCode = null; }
+        else if (level === "district") { d.districtCode = value; d.blockCode = null; d.villageCode = null; }
+        else if (level === "block") { d.blockCode = value; d.villageCode = null; }
+        else if (level === "village") { d.villageCode = value; }
+        paintScreen();
+      });
+    }
     const back = document.getElementById("signup-back"); if (back) back.addEventListener("click", signupBack);
     const exit = document.getElementById("signup-exit"); if (exit) exit.addEventListener("click", () => { store.screen = "login"; paintScreen(); });
   } else if (store.screen === "forgot") {
@@ -1211,6 +1427,20 @@ function wireScreen() {
     wireOtpBoxes();
   } else if (store.screen === "forcePassword") {
     const form = document.getElementById("force-pw-form"); if (form) form.addEventListener("submit", handleForcePasswordChange);
+  } else if (store.screen === "googleComplete") {
+    const form = document.getElementById("google-complete-form");
+    if (form) form.addEventListener("submit", googleCompleteNext);
+    if (store.googleStep === 2) {
+      wireLocationSelects(document, (level, value) => {
+        const d = store.googleData;
+        if (level === "state") { d.stateCode = value; d.districtCode = null; d.blockCode = null; d.villageCode = null; }
+        else if (level === "district") { d.districtCode = value; d.blockCode = null; d.villageCode = null; }
+        else if (level === "block") { d.blockCode = value; d.villageCode = null; }
+        else if (level === "village") { d.villageCode = value; }
+        paintScreen();
+      });
+    }
+    const back = document.getElementById("google-back"); if (back) back.addEventListener("click", googleCompleteBack);
   } else {
     wireShell();
   }

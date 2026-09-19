@@ -93,4 +93,38 @@ will work from then on.
   analytics/ranking views from the original brief, aren't built yet — the
   data model (`purchases`, `tokens`, `centers`) is already shaped to
   support them.
+
+
+  Kisan Setu data files
+
+Files
+
+crops.json — centralized crop master list for multi-select UI.
+
+locations.json — State → District → Block → Village data contract plus a clearly marked Bareilly development sample.
+
+Important
+
+locations.json intentionally does NOT contain a fake all-India village database. The official Government of India Local Government Directory (LGD) is the recommended primary source and is maintained as a changing directory.
+
+For Kisan Setu, keep the location adapter separate from app.js. The signup form should call functions such as:
+
+getStates()
+
+getDistricts(stateId)
+
+getBlocks(districtId)
+
+getVillages(blockId)
+
+The final Firebase profile should store the selected IDs/codes and names, not a giant duplicated location tree.
+
+Sources
+
+Primary: Government of India, Ministry of Panchayati Raj — LGD
+https://data.gov.in/catalog/local-government-directory-lgd
+https://lgdirectory.gov.in/demo/downloadDirectory.do
+
+Reference: Census 2011 Location Code Directory
+https://censusindia.gov.in/nada/index.php/catalog/42648/study-description
   

@@ -1,0 +1,301 @@
+{
+  "version": "1.0.0",
+  "name": "Kisan Setu Crop Master",
+  "description": "Centralized crop list for farmer crop selection. Keep UI labels and stored IDs separate.",
+  "crops": [
+    {
+      "id": "wheat",
+      "name_en": "Wheat",
+      "name_hi": "गेहूँ",
+      "category": "Cereals"
+    },
+    {
+      "id": "rice",
+      "name_en": "Rice",
+      "name_hi": "धान / चावल",
+      "category": "Cereals"
+    },
+    {
+      "id": "maize",
+      "name_en": "Maize",
+      "name_hi": "मक्का",
+      "category": "Cereals"
+    },
+    {
+      "id": "barley",
+      "name_en": "Barley",
+      "name_hi": "जौ",
+      "category": "Cereals"
+    },
+    {
+      "id": "bajra",
+      "name_en": "Pearl Millet",
+      "name_hi": "बाजरा",
+      "category": "Millets"
+    },
+    {
+      "id": "jowar",
+      "name_en": "Sorghum",
+      "name_hi": "ज्वार",
+      "category": "Millets"
+    },
+    {
+      "id": "ragi",
+      "name_en": "Finger Millet",
+      "name_hi": "रागी / मडुआ",
+      "category": "Millets"
+    },
+    {
+      "id": "foxtail_millet",
+      "name_en": "Foxtail Millet",
+      "name_hi": "कंगनी",
+      "category": "Millets"
+    },
+    {
+      "id": "little_millet",
+      "name_en": "Little Millet",
+      "name_hi": "कुटकी",
+      "category": "Millets"
+    },
+    {
+      "id": "kodo_millet",
+      "name_en": "Kodo Millet",
+      "name_hi": "कोदो",
+      "category": "Millets"
+    },
+    {
+      "id": "chickpea",
+      "name_en": "Chickpea / Gram",
+      "name_hi": "चना",
+      "category": "Pulses"
+    },
+    {
+      "id": "pigeon_pea",
+      "name_en": "Pigeon Pea / Arhar",
+      "name_hi": "अरहर / तूर",
+      "category": "Pulses"
+    },
+    {
+      "id": "black_gram",
+      "name_en": "Black Gram / Urad",
+      "name_hi": "उड़द",
+      "category": "Pulses"
+    },
+    {
+      "id": "green_gram",
+      "name_en": "Green Gram / Moong",
+      "name_hi": "मूंग",
+      "category": "Pulses"
+    },
+    {
+      "id": "lentil",
+      "name_en": "Lentil / Masoor",
+      "name_hi": "मसूर",
+      "category": "Pulses"
+    },
+    {
+      "id": "field_pea",
+      "name_en": "Field Pea",
+      "name_hi": "मटर",
+      "category": "Pulses"
+    },
+    {
+      "id": "kidney_bean",
+      "name_en": "Kidney Bean / Rajma",
+      "name_hi": "राजमा",
+      "category": "Pulses"
+    },
+    {
+      "id": "soybean",
+      "name_en": "Soybean",
+      "name_hi": "सोयाबीन",
+      "category": "Oilseeds"
+    },
+    {
+      "id": "mustard",
+      "name_en": "Mustard",
+      "name_hi": "सरसों",
+      "category": "Oilseeds"
+    },
+    {
+      "id": "groundnut",
+      "name_en": "Groundnut",
+      "name_hi": "मूंगफली",
+      "category": "Oilseeds"
+    },
+    {
+      "id": "sesame",
+      "name_en": "Sesame",
+      "name_hi": "तिल",
+      "category": "Oilseeds"
+    },
+    {
+      "id": "sunflower",
+      "name_en": "Sunflower",
+      "name_hi": "सूरजमुखी",
+      "category": "Oilseeds"
+    },
+    {
+      "id": "safflower",
+      "name_en": "Safflower",
+      "name_hi": "कुसुम",
+      "category": "Oilseeds"
+    },
+    {
+      "id": "castor",
+      "name_en": "Castor",
+      "name_hi": "अरंडी",
+      "category": "Oilseeds"
+    },
+    {
+      "id": "sugarcane",
+      "name_en": "Sugarcane",
+      "name_hi": "गन्ना",
+      "category": "Commercial Crops"
+    },
+    {
+      "id": "cotton",
+      "name_en": "Cotton",
+      "name_hi": "कपास",
+      "category": "Fiber Crops"
+    },
+    {
+      "id": "jute",
+      "name_en": "Jute",
+      "name_hi": "जूट",
+      "category": "Fiber Crops"
+    },
+    {
+      "id": "potato",
+      "name_en": "Potato",
+      "name_hi": "आलू",
+      "category": "Vegetables & Tubers"
+    },
+    {
+      "id": "onion",
+      "name_en": "Onion",
+      "name_hi": "प्याज",
+      "category": "Vegetables & Tubers"
+    },
+    {
+      "id": "tomato",
+      "name_en": "Tomato",
+      "name_hi": "टमाटर",
+      "category": "Vegetables & Tubers"
+    },
+    {
+      "id": "chilli",
+      "name_en": "Chilli",
+      "name_hi": "मिर्च",
+      "category": "Spices"
+    },
+    {
+      "id": "turmeric",
+      "name_en": "Turmeric",
+      "name_hi": "हल्दी",
+      "category": "Spices"
+    },
+    {
+      "id": "ginger",
+      "name_en": "Ginger",
+      "name_hi": "अदरक",
+      "category": "Spices"
+    },
+    {
+      "id": "garlic",
+      "name_en": "Garlic",
+      "name_hi": "लहसुन",
+      "category": "Spices"
+    },
+    {
+      "id": "coriander",
+      "name_en": "Coriander",
+      "name_hi": "धनिया",
+      "category": "Spices"
+    },
+    {
+      "id": "cumin",
+      "name_en": "Cumin",
+      "name_hi": "जीरा",
+      "category": "Spices"
+    },
+    {
+      "id": "cardamom",
+      "name_en": "Cardamom",
+      "name_hi": "इलायची",
+      "category": "Spices"
+    },
+    {
+      "id": "pepper",
+      "name_en": "Black Pepper",
+      "name_hi": "काली मिर्च",
+      "category": "Spices"
+    },
+    {
+      "id": "tea",
+      "name_en": "Tea",
+      "name_hi": "चाय",
+      "category": "Plantation Crops"
+    },
+    {
+      "id": "coffee",
+      "name_en": "Coffee",
+      "name_hi": "कॉफी",
+      "category": "Plantation Crops"
+    },
+    {
+      "id": "coconut",
+      "name_en": "Coconut",
+      "name_hi": "नारियल",
+      "category": "Plantation Crops"
+    },
+    {
+      "id": "banana",
+      "name_en": "Banana",
+      "name_hi": "केला",
+      "category": "Fruits"
+    },
+    {
+      "id": "mango",
+      "name_en": "Mango",
+      "name_hi": "आम",
+      "category": "Fruits"
+    },
+    {
+      "id": "guava",
+      "name_en": "Guava",
+      "name_hi": "अमरूद",
+      "category": "Fruits"
+    },
+    {
+      "id": "papaya",
+      "name_en": "Papaya",
+      "name_hi": "पपीता",
+      "category": "Fruits"
+    },
+    {
+      "id": "pomegranate",
+      "name_en": "Pomegranate",
+      "name_hi": "अनार",
+      "category": "Fruits"
+    },
+    {
+      "id": "grapes",
+      "name_en": "Grapes",
+      "name_hi": "अंगूर",
+      "category": "Fruits"
+    },
+    {
+      "id": "apple",
+      "name_en": "Apple",
+      "name_hi": "सेब",
+      "category": "Fruits"
+    },
+    {
+      "id": "orange",
+      "name_en": "Orange",
+      "name_hi": "संतरा",
+      "category": "Fruits"
+    }
+  ]
+}
