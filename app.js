@@ -1179,14 +1179,34 @@ function startBooking(centerId, center) {
     onConfirm: async () => {
       if (!auth.currentUser) { showToast(t("network_error")); return; }
       const uid = auth.currentUser.uid;
+
+      // Pre-check: read this farmer's own deterministic token slot
+      // (tokens/{uid}). With the fixed rules this `get` always succeeds
+      // for an active farmer on their own uid, whether or not the
+      // document exists yet — so a failure here is a real, separate
+      // problem (network/auth/rules), never evidence of an active token.
+      let existingSnap;
       try {
-        // Friendly pre-check only — see note above on why this is not
-        // what actually prevents a duplicate active token.
-        const existing = await getDoc(doc(db, "tokens", uid));
-        if (existing.exists() && existing.data().status === "waiting") {
-          showToast(t("active_token_exists"));
-          return;
-        }
+        existingSnap = await getDoc(doc(db, "tokens", uid));
+        // TEMP DIAGNOSTIC — remove once verified end-to-end (see note below).
+        console.log("[bookToken] pre-check:", {
+          exists: existingSnap.exists(),
+          status: existingSnap.exists() ? existingSnap.data().status : null,
+        });
+      } catch (e) {
+        console.error("[bookToken] pre-check failed:", e.code, e.message, e);
+        showToast(t("network_error"));
+        return;
+      }
+      // "Active token exists" is shown ONLY when the pre-check actually
+      // found a document AND that document's status is "waiting" — never
+      // inferred from an error of any kind.
+      if (existingSnap.exists() && existingSnap.data().status === "waiting") {
+        showToast(t("active_token_exists"));
+        return;
+      }
+
+      try {
         // Re-read the center fresh so we don't trust a possibly-stale
         // listener snapshot; the rules re-check this again server-side
         // regardless.
@@ -1207,14 +1227,25 @@ function startBooking(centerId, center) {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
+        // TEMP DIAGNOSTIC — remove once verified end-to-end (see note below).
+        console.log("[bookToken] token document written:", uid);
+
+        // Verify the write actually landed before switching screens.
+        const verifySnap = await getDoc(doc(db, "tokens", uid));
+        console.log("[bookToken] verify after write:", {
+          exists: verifySnap.exists(),
+          data: verifySnap.exists() ? verifySnap.data() : null,
+        });
+
         showToast(t("saved")); store.farmerTab = "token"; mount();
       } catch (e) {
-        // Temporary diagnostic log — remove once the real cause is found.
-        // This does not change what the farmer sees; it only makes the
-        // actual Firebase error (code + message) visible in DevTools
-        // console instead of being silently swallowed.
         console.error("[bookToken] Firestore write failed:", e.code, e.message, e);
-        showToast(e.code === "permission-denied" ? t("active_token_exists") : t("network_error"));
+        // A failure reaching this point is NOT "active token exists" —
+        // the pre-check above already ruled that out. It's a genuine
+        // write-time rejection (e.g. center not open/active, farmerName
+        // mismatch) and gets a generic error, not a false "already
+        // booked" message.
+        showToast(t("network_error"));
       }
     },
   });

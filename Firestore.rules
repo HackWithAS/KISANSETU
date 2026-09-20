@@ -253,8 +253,26 @@ service cloud.firestore {
     }
 
     match /tokens/{tokenId} {
+      // The farmer branch is intentionally based only on the path segment
+      // (tokenId == request.auth.uid), never on resource.data. Because the
+      // token document ID is always this farmer's own uid (see the create/
+      // update rules below), that comparison alone proves ownership and
+      // needs no read of the document's fields — which matters because
+      // `resource` is null when the document does not exist yet, and
+      // touching `resource.data` on a null resource throws and gets
+      // denied. That was the actual bug: the old farmer branch read
+      // `resource.data.farmerId`, so a farmer's very first pre-booking
+      // check (get on their own not-yet-created token) always failed with
+      // permission-denied, before setDoc() was ever attempted. This branch
+      // fixes that: `get` on tokens/{ownUid} now always succeeds for an
+      // active farmer, returning either the real document or "not found"
+      // — never a permission error — regardless of whether it exists.
+      // The center branch is unchanged: a center has no deterministic
+      // relationship to a token's ID, so it can only prove ownership by
+      // reading the existing document's centerId, which requires the
+      // document (and therefore `resource`) to actually exist.
       allow get: if signedIn() && (
-        (isActiveFarmer() && resource.data.farmerId == request.auth.uid) ||
+        (isActiveFarmer() && tokenId == request.auth.uid) ||
         (isActiveCenter() && resource.data.centerId == callerCenterId())
       );
 
