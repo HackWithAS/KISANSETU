@@ -271,18 +271,21 @@ service cloud.firestore {
       // classifies a write to an already-existing document as an
       // "update", never a "create", so a second booking attempt for the
       // same farmer — however it races with the first — is evaluated
-      // against `allow update`, which stays `false` below. Rules alone
-      // cannot enforce a database-wide uniqueness constraint across
-      // arbitrary document IDs; pinning the ID to the farmer's uid is
-      // what sidesteps that limitation instead of requiring one.
+      // against `allow update` below, which only ever permits this exact
+      // farmer's own waiting -> cancelled transition, never a second
+      // "waiting" write. Rules alone cannot enforce a database-wide
+      // uniqueness constraint across arbitrary document IDs; pinning the
+      // ID to the farmer's uid is what sidesteps that limitation instead
+      // of requiring one.
       //
-      // LIMITATION: because the slot is keyed by farmerId, once this
-      // document exists (in any status) this farmer cannot create another
-      // one until it is removed or reset by a trusted server operation —
-      // a farmer has no update/delete rights over their own token below,
-      // so the client alone can never "recycle" the slot. Freeing it
-      // after cancel/no-show/completion remains the job of a
-      // server-controlled flow (see cancelToken/markNoShow).
+      // LIMITATION: because the slot is keyed by farmerId, this farmer
+      // can cancel their own waiting token (see `allow update` below) but
+      // still cannot create a *new* one while this document exists in
+      // any status — a farmer has no delete rights over it below, so the
+      // client alone can never fully recycle the slot after a
+      // cancellation. Actually freeing the slot for a fresh booking
+      // still requires a trusted server operation to remove/reset this
+      // document (see markNoShow/createPurchase, not yet converted).
       allow create: if isActiveFarmer()
         && tokenId == request.auth.uid
         && request.resource.data.farmerId == request.auth.uid
@@ -297,9 +300,35 @@ service cloud.firestore {
           'farmerId','farmerName','centerId','status','createdAt','updatedAt'
         ]);
 
-      // All status transitions (waiting -> done/cancelled/no-show) and any
-      // other change remain server-controlled, exactly as before.
-      allow update, delete: if false;
+      // Spark-plan cancel: the farmer's own browser tab updates the
+      // document directly. Scoped tightly so this can only ever be a
+      // farmer cancelling their own still-waiting token, and only ever
+      // that one transition:
+      //  - tokenId == request.auth.uid / resource.data.farmerId ==
+      //    request.auth.uid: it must be this farmer's own token, not
+      //    merely any token — belt-and-suspenders, since the ID is
+      //    already pinned to the farmer's uid at create time.
+      //  - resource.data.status == 'waiting': you can only cancel a
+      //    token that is still waiting — not one already done/cancelled/
+      //    no-show — so a farmer can never resurrect or replay a
+      //    finished token.
+      //  - onlyChanged(['status','updatedAt']) plus the exact new value
+      //    of each: nothing else about the token (farmerId, farmerName,
+      //    centerId, createdAt) can move, and status may only become
+      //    'cancelled' — never 'done' or anything else — so this rule
+      //    can never be reused to self-serve a token.
+      allow update: if isActiveFarmer()
+        && tokenId == request.auth.uid
+        && resource.data.farmerId == request.auth.uid
+        && resource.data.status == 'waiting'
+        && onlyChanged(['status', 'updatedAt'])
+        && request.resource.data.status == 'cancelled'
+        && request.resource.data.updatedAt == request.time;
+
+      // Every other status transition (waiting -> done/no-show, or any
+      // change initiated by a center/gov account) remains
+      // server-controlled, exactly as before.
+      allow delete: if false;
     }
 
     match /purchases/{purchaseId} {

@@ -1158,17 +1158,20 @@ function subscribeFarmerHome() {
    farmer" an atomic, server-enforced guarantee instead of a client-side
    hope: Firestore itself classifies a write to an existing document as an
    "update", never a "create", so if this farmer already has a token
-   document here, this exact write is evaluated against the tokens
-   `allow update` rule — which is `false` — no matter how many booking
-   attempts race each other. The pre-check below (reading tokens/{uid})
-   only exists to show a friendly message instead of a raw permission
-   error; it is not what provides the uniqueness guarantee, and the catch
-   block still handles the case where the pre-check missed a concurrent
-   write.
+   document here, a second booking attempt is evaluated against the
+   tokens `allow update` rule — which only ever permits a farmer's own
+   waiting -> cancelled transition (see subscribeFarmerToken's cancel
+   handler), never a second "waiting" write — so no matter how many
+   booking attempts race each other, at most one waiting token can ever
+   exist for this farmer. The pre-check below (reading tokens/{uid}) only
+   exists to show a friendly message instead of a raw permission error;
+   it is not what provides the uniqueness guarantee, and the catch block
+   still handles the case where the pre-check missed a concurrent write.
    LIMITATION: because the slot is keyed by farmerId, once a token
-   document exists here (in any status) this farmer cannot book again
-   until that document is removed or reset by a trusted server operation
-   — see cancelToken/markNoShow in the flow audit. */
+   document exists here in a status other than "waiting" (done/no-show,
+   or after this farmer cancels it), this farmer cannot book again until
+   that document is removed or reset by a trusted server operation — see
+   markNoShow/createPurchase in the flow audit, not yet converted. */
 function startBooking(centerId, center) {
   if (!center || center.govStatus !== "active" || center.status !== "open") return;
   openModal({
@@ -1235,7 +1238,24 @@ function subscribeFarmerToken() {
       openModal({
         title: t("cancel_token_confirm_title"), body: t("cancel_token_confirm_body"),
         confirmText: t("yes_cancel"), cancelText: t("no_keep"), danger: true,
-        onConfirm: async () => { try { await callFunction("cancelToken", { tokenId: tok.id }); showToast(t("saved")); } catch (_) { showToast(t("network_error")); } },
+        onConfirm: async () => {
+          // Spark-plan cancel: a direct Firestore update instead of a
+          // Cloud Function. The token document ID is the farmer's own
+          // uid (see startBooking), so `tok.id` here is always this
+          // farmer's own uid — there is no separate tokenId to trust
+          // from the UI. The rules independently re-check ownership
+          // (farmerId == request.auth.uid), that the token is still
+          // "waiting" (you can't "cancel" a token that's already been
+          // served/cancelled/no-show), and that this write touches only
+          // status + updatedAt.
+          try {
+            await updateDoc(doc(db, "tokens", tok.id), {
+              status: "cancelled",
+              updatedAt: serverTimestamp(),
+            });
+            showToast(t("saved"));
+          } catch (_) { showToast(t("network_error")); }
+        },
       });
     });
   });
