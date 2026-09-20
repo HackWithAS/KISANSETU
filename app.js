@@ -228,6 +228,19 @@ function newCaptcha() {
   store.captcha = { a: 2 + Math.floor(Math.random() * 8), b: 1 + Math.floor(Math.random() * 8) };
 }
 function checkCaptcha(v) { return String(store.captcha.a + store.captcha.b) === String(v || "").trim(); }
+/* Regenerates the captcha challenge in place, inside the given form, without
+   touching anything else — never call paintLoginForm()/rebuild the form
+   here, or every field the person typed (and any error just shown) gets
+   wiped along with it. */
+function refreshCaptchaWidget(form) {
+  newCaptcha();
+  const box = form.querySelector(".captcha-box");
+  if (!box) return;
+  const challenge = box.querySelector(".captcha-challenge");
+  if (challenge) challenge.textContent = `${store.captcha.a} + ${store.captcha.b} = ?`;
+  const input = form.querySelector('input[name="captcha"]');
+  if (input) input.value = "";
+}
 
 function applyTheme() { document.documentElement.setAttribute("data-theme", store.theme); }
 function setTheme(th) {
@@ -334,7 +347,7 @@ async function handleFarmerLogin(e) {
   let bad = false;
   if (!username) { setFieldError(form, "username", t("field_required")); bad = true; }
   if (!password) { setFieldError(form, "password", t("field_required")); bad = true; }
-  if (!checkCaptcha(captchaVal)) { setFieldError(form, "captcha", t("captcha_wrong")); newCaptcha(); paintLoginForm(); bad = true; }
+  if (!checkCaptcha(captchaVal)) { setFieldError(form, "captcha", t("captcha_wrong")); refreshCaptchaWidget(form); bad = true; }
   if (bad) return;
   setBtnLoading(form, true);
   try {
@@ -342,7 +355,7 @@ async function handleFarmerLogin(e) {
   } catch (err) {
     setBtnLoading(form, false);
     showAuthError(form, authErrorMessage(err));
-    newCaptcha(); paintLoginForm();
+    refreshCaptchaWidget(form);
   }
 }
 function authErrorMessage(err) {
@@ -382,7 +395,7 @@ async function handleGovLogin(e) {
   let bad = false;
   if (!officialId) { setFieldError(form, "officialId", t("field_required")); bad = true; }
   if (!password) { setFieldError(form, "password", t("field_required")); bad = true; }
-  if (!checkCaptcha(captchaVal)) { setFieldError(form, "captcha", t("captcha_wrong")); newCaptcha(); paintLoginForm(); bad = true; }
+  if (!checkCaptcha(captchaVal)) { setFieldError(form, "captcha", t("captcha_wrong")); refreshCaptchaWidget(form); bad = true; }
   if (bad) return;
   setBtnLoading(form, true);
   try {
@@ -390,7 +403,7 @@ async function handleGovLogin(e) {
   } catch (err) {
     setBtnLoading(form, false);
     showAuthError(form, authErrorMessage(err));
-    newCaptcha(); paintLoginForm();
+    refreshCaptchaWidget(form);
   }
 }
 
@@ -714,7 +727,7 @@ function wireLoginForm() {
   const goGoogle = document.getElementById("go-google");
   if (goGoogle) goGoogle.addEventListener("click", handleGoogleLogin);
   const refresh = document.getElementById("captcha-refresh");
-  if (refresh) refresh.addEventListener("click", () => { newCaptcha(); paintLoginForm(); });
+  if (refresh) refresh.addEventListener("click", () => refreshCaptchaWidget(form));
   wirePasswordToggles(form);
 }
 function wirePasswordToggles(scope) {
