@@ -250,16 +250,29 @@ service cloud.firestore {
           'capacity','counters','acceptedCrops','govStatus','status','createdAt'
         ]);
 
-      // Center operators control only their operational status and counter
-      // count, and only while Government has the center activated.
+      // Center operators control only their operational status, counter
+      // count and the published queue summary, and only while Government
+      // has the center activated.
+      // queueUids / queueLength: the center's browser publishes its live
+      // waiting list here (farmer uids in queue order + its length) so
+      // farmers can see their position and the wait — there is no Cloud
+      // Function on the Spark plan to compute it. LIMITATION: rules cannot
+      // check that the list is truthful (only its type and size), and
+      // cannot loop over its elements; a dishonest center could publish a
+      // wrong queue for ITSELF only. It contains opaque uids, no names.
       allow update: if isActiveCenter()
         && callerCenterId() == centerId
         && resource.data.govStatus == 'active'
-        && onlyChanged(['status','counters'])
+        && onlyChanged(['status','counters','queueUids','queueLength'])
         && request.resource.data.status in ['open','closed']
         && request.resource.data.counters is int
         && request.resource.data.counters >= 1
-        && request.resource.data.counters <= 8;
+        && request.resource.data.counters <= 8
+        && request.resource.data.get('queueLength', 0) is int
+        && request.resource.data.get('queueLength', 0) >= 0
+        && request.resource.data.get('queueLength', 0) <= 50
+        && request.resource.data.get('queueUids', []) is list
+        && request.resource.data.get('queueUids', []).size() <= 50;
 
       allow delete: if false;
     }

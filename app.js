@@ -149,6 +149,9 @@ const I18N = {
     err_network_slow: "नेटवर्क धीमा है। दोबारा भेजने से पहले कतार जाँच लें — हो सकता है कार्य पूरा हो गया हो।",
     err_unknown: "कुछ गलत हो गया। कृपया दोबारा प्रयास करें।",
     notif_token_served: "{center} पर आपकी खरीद दर्ज हो गई है। विवरण 'पिछली खरीद' में देखें।",
+    queue_sync_ok: "किसानों को कतार दिख रही है ({n} प्रतीक्षा में)",
+    queue_sync_fail: "कतार किसानों तक नहीं पहुँची ({code})।",
+    queue_sync_hint: "नई firestore.rules Publish करें और पेज रीफ़्रेश करें।",
   },
   en: {
     brand: "Kisan Setu", tagline: "Connecting farmers and procurement centers, simply.",
@@ -232,6 +235,9 @@ const I18N = {
     err_network_slow: "The network is slow. Check the queue before retrying — the action may have completed.",
     err_unknown: "Something went wrong. Please try again.",
     notif_token_served: "Your purchase at {center} has been recorded. See 'Purchase history' for details.",
+    queue_sync_ok: "Farmers can see the queue ({n} waiting)",
+    queue_sync_fail: "The queue could not be sent to farmers ({code}).",
+    queue_sync_hint: "Publish the latest firestore.rules and refresh the page.",
   },
 };
 function t(key) { return (I18N[store.lang] && I18N[store.lang][key]) || I18N.hi[key] || key; }
@@ -348,6 +354,29 @@ const MAX_QTY_QUINTAL = 5000;         // rules: quantity <= 5000
 const MAX_RATE_PER_QUINTAL = 100000;  // rules: rate <= 100000
 const GRADES = ["A", "B", "C"];       // rules: grade in ['A','B','C']
 const OP_TIMEOUT_MS = 20000;
+/* Queue estimates. There is no server on the Spark plan, so nothing can
+   measure real service times: this is a flat estimate (minutes one counter
+   needs per farmer). Change it here if your centers are faster/slower. */
+const MINUTES_PER_TOKEN = 10;
+const MAX_QUEUE_PUBLISHED = 50;        // rules: queueUids.size() <= 50 (= the queue query's limit)
+
+function centerCounters(c) { return Math.max(1, Math.min(8, Number(c && c.counters) || 1)); }
+/* Wait for someone joining now (center list / booking modal). null = the
+   center has not published its queue yet -> UI shows "—", never a fake 0. */
+function centerWaitMin(c) {
+  const len = Number(c && c.queueLength);
+  if (!c || c.queueLength == null || !Number.isFinite(len)) return null;
+  return Math.ceil(len / centerCounters(c)) * MINUTES_PER_TOKEN;
+}
+/* 1-based position of a farmer in the center's published queue, or null. */
+function queuePositionOf(center, farmerId) {
+  const list = center && Array.isArray(center.queueUids) ? center.queueUids : null;
+  const i = list ? list.indexOf(farmerId) : -1;
+  return i >= 0 ? i + 1 : null;
+}
+function waitForPosition(center, pos) {
+  return pos == null ? null : Math.ceil((pos - 1) / centerCounters(center)) * MINUTES_PER_TOKEN;
+}
 
 function cropName(code) {
   try {
@@ -1220,7 +1249,7 @@ function farmerHelp() {
 function renderNearbyCenters(centers) {
   if (!centers.length) return emptyState("mapPin", t("no_centers_found"), t("no_centers_desc"));
   const sorted = [...centers].sort((a, b) => {
-    if (store.sortBy === "wait") return (a.estWait ?? 999) - (b.estWait ?? 999);
+    if (store.sortBy === "wait") return (centerWaitMin(a) ?? 999) - (centerWaitMin(b) ?? 999);
     if (store.sortBy === "token") return (b.tokenAvailability ?? 0) - (a.tokenAvailability ?? 0);
     return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
   });
@@ -1234,8 +1263,8 @@ function renderNearbyCenters(centers) {
         <div class="name">${esc(c.centerName)}</div>
         <div class="meta-line">
           ${c.distanceKm != null ? `<span>${c.distanceKm} ${t("km_away")}</span>` : ""}
-          <span>${t("queue_len")}: ${c.queueLength ?? 0}</span>
-          <span>${t("est_wait")}: ${c.estWait != null ? c.estWait + " min" : "—"}</span>
+          <span>${t("queue_len")}: ${c.queueLength != null ? c.queueLength : "—"}</span>
+          <span>${t("est_wait")}: ${centerWaitMin(c) != null ? centerWaitMin(c) + " min" : "—"}</span>
           <span class="badge ${c.govStatus !== "active" ? "red" : c.status === "open" ? "green" : "red"}">${c.govStatus !== "active" ? t("gov_inactive") : c.status === "open" ? t("open_now") : t("closed_now")}</span>
         </div>
       </div>
@@ -1292,7 +1321,7 @@ function startBooking(centerId, center) {
   if (!center || center.govStatus !== "active" || center.status !== "open") return;
   openModal({
     title: t("book_token"),
-    body: `${esc(center.centerName)} — ${t("est_wait")}: ${center.estWait ?? "—"} min${bookingCropsHtml(center)}`,
+    body: `${esc(center.centerName)} — ${t("est_wait")}: ${centerWaitMin(center) != null ? centerWaitMin(center) + " min" : "—"}${bookingCropsHtml(center)}`,
     confirmText: t("book_token"), cancelText: t("cancel"),
     onOpen: (root) => {
       const box = root.querySelector(".modal") || root;
@@ -1415,19 +1444,25 @@ function startBooking(centerId, center) {
 
 function subscribeFarmerToken() {
   const q1 = query(collection(db, "tokens"), where("farmerId", "==", store.user.uid), where("status", "==", "waiting"), limit(1));
-  store._unsub.myToken = onSnapshot(q1, async (qs) => {
+  store._unsub.myToken = onSnapshot(q1, (qs) => {
+    if (store._unsub.myTokenCenter) { store._unsub.myTokenCenter(); store._unsub.myTokenCenter = null; }
     if (qs.empty) { paint("farmer-token", emptyState("ticket", t("no_active_token"), t("no_active_token_desc"))); return; }
     const tok = { id: qs.docs[0].id, ...qs.docs[0].data() };
-    const centerSnap = await getDoc(doc(db, "centers", tok.centerId));
-    const center = centerSnap.exists() ? centerSnap.data() : {};
-    paint("farmer-token", `<h2 class="section-title">${t("my_token")}</h2>
+    // Live center document: the center publishes queueUids/queueLength/counters
+    // there (see subscribeCenterQueue), so position and wait update as the
+    // queue moves — no Cloud Function involved.
+    store._unsub.myTokenCenter = onSnapshot(doc(db, "centers", tok.centerId), (centerSnap) => {
+      const center = centerSnap.exists() ? centerSnap.data() : {};
+      const pos = queuePositionOf(center, tok.farmerId);
+      const wait = waitForPosition(center, pos);
+      paint("farmer-token", `<h2 class="section-title">${t("my_token")}</h2>
       <div class="token-card">
         <span class="status-pill badge gold">${t("token_status_waiting")}</span>
         <div class="token-num">#${tok.id.slice(-6).toUpperCase()}</div>
         <div class="token-meta">
           <div><div class="k">${t("center_id")}</div><div class="v">${esc(center.centerName || tok.centerId)}</div></div>
-          <div><div class="k">${t("queue_position")}</div><div class="v">${tok.queuePosition ?? "—"}</div></div>
-          <div><div class="k">${t("est_wait")}</div><div class="v">${center.estWait != null ? center.estWait + " min" : "—"}</div></div>
+          <div><div class="k">${t("queue_position")}</div><div class="v">${pos != null ? pos : "—"}</div></div>
+          <div><div class="k">${t("est_wait")}</div><div class="v">${wait != null ? wait + " min" : "—"}</div></div>
           <div><div class="k">${t("declared_crops")}</div><div class="v">${esc(declaredCropsSummary(tok.declaredCrops)) || "—"}</div></div>
         </div>
       </div>
@@ -1459,6 +1494,7 @@ function subscribeFarmerToken() {
         },
       });
     });
+    }, () => paint("farmer-token", emptyState("ticket", t("no_active_token"), t("no_active_token_desc"))));
   });
 }
 
@@ -1496,7 +1532,7 @@ function subscribeFarmerNotif() {
 /* ============================== center views ============================== */
 function centerBody() {
   const tab = store.centerTab;
-  if (tab === "queue") return `<h2 class="section-title">${t("queue_title")}</h2><div id="center-queue">${loadingBlock()}</div>`;
+  if (tab === "queue") return `<h2 class="section-title">${t("queue_title")}</h2><div id="queue-sync"></div><div id="center-queue">${loadingBlock()}</div>`;
   if (tab === "capacity") return `<h2 class="section-title">${t("center_status")}</h2><div id="center-capacity">${loadingBlock()}</div>`;
   if (tab === "notif") return `<h2 class="section-title">${t("notifications")}</h2><div id="center-notif">${loadingBlock()}</div>`;
   if (tab === "settings") return centerSettings();
@@ -1569,8 +1605,50 @@ function subscribeCenterQueue() {
   // Government's client-side registration flow (see wireGovRegister) — is
   // the center's real business ID. The center's Auth uid (store.user.uid)
   // is a different value and must never be used as a centerId anywhere.
-  const q1 = query(collection(db, "tokens"), where("centerId", "==", store.profile.centerId), where("status", "==", "waiting"), orderBy("createdAt", "asc"), limit(50));
+  const q1 = query(collection(db, "tokens"), where("centerId", "==", store.profile.centerId), where("status", "==", "waiting"), orderBy("createdAt", "asc"), limit(MAX_QUEUE_PUBLISHED));
+
+  /* Publishes the queue to centers/{centerId} (queueUids, queueLength) so
+     farmers can see their position / the wait. Only the center can write
+     these fields (firestore.rules validates type and size, and that only
+     the owning, gov-active center writes). It runs while this Queue tab is
+     open; if nobody has it open the numbers go stale — see the notes. */
+  let latestDocs = null, latestCenter = null, lastSig = null, retries = 0, retryTimer = null;
+  const setSync = (ok, detail) => {
+    const el = document.getElementById("queue-sync");
+    if (!el) return;
+    el.innerHTML = ok
+      ? `<div class="tiny muted">${esc(t("queue_sync_ok").replace("{n}", String(detail)))}</div>`
+      : `<div class="alert danger" role="alert">${ic("alert")}<span>${esc(t("queue_sync_fail").replace("{code}", String(detail)))}${detail === "permission-denied" ? " " + esc(t("queue_sync_hint")) : ""}</span></div>`;
+  };
+  const publishQueue = () => {
+    if (!latestDocs) return;
+    if (latestCenter && latestCenter.govStatus !== "active") return;
+    const uids = latestDocs.map((d) => d.data().farmerId).filter((x) => typeof x === "string");
+    const patch = { queueUids: uids, queueLength: uids.length };
+    const sig = JSON.stringify(patch);
+    const already = !!latestCenter && latestCenter.queueLength === patch.queueLength && JSON.stringify(latestCenter.queueUids || []) === JSON.stringify(uids);
+    if (already) { lastSig = sig; setSync(true, uids.length); return; }
+    if (sig === lastSig) return;
+    lastSig = sig;
+    updateDoc(doc(db, "centers", store.profile.centerId), patch).then(() => {
+      retries = 0;
+      setSync(true, uids.length);
+    }).catch((e) => {
+      lastSig = null;   // a rejected write rolls the local doc back; retry instead of staying stale
+      console.error("[publishQueue] TEMP diagnostic — error.code:", e && e.code, "| error.message:", e && e.message);
+      setSync(false, (e && e.code) || "error");
+      if (retries < 3) { retries++; clearTimeout(retryTimer); retryTimer = setTimeout(publishQueue, 3000); }
+    });
+  };
+  store._unsub.queueRetry = () => clearTimeout(retryTimer);
+  store._unsub.queueCenter = onSnapshot(doc(db, "centers", store.profile.centerId), (snap) => {
+    latestCenter = snap.exists() ? snap.data() : null;
+    publishQueue();
+  }, (e) => { console.error("[publishQueue] center listener error:", e && e.code, e && e.message); publishQueue(); });
+
   store._unsub.queue = onSnapshot(q1, (qs) => {
+    latestDocs = qs.docs;
+    publishQueue();
     if (qs.empty) { paint("center-queue", emptyState("users", t("no_queue"), t("no_queue_desc"))); return; }
     paint("center-queue", `<div class="card">${qs.docs.map((d, i) => {
       const tk = { id: d.id, ...d.data() };
