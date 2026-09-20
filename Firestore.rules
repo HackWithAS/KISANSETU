@@ -19,6 +19,18 @@ service cloud.firestore {
       return /databases/$(database)/documents/centers/$(centerId);
     }
 
+    function tokenPath(id) {
+      return /databases/$(database)/documents/tokens/$(id);
+    }
+
+    function purchasePath(id) {
+      return /databases/$(database)/documents/purchases/$(id);
+    }
+
+    function notificationPath(id) {
+      return /databases/$(database)/documents/notifications/$(id);
+    }
+
     function callerExists() {
       return signedIn() && exists(userPath(request.auth.uid));
     }
@@ -292,8 +304,8 @@ service cloud.firestore {
       // below, whose booking branch requires `resource.data.status !=
       // 'waiting'` — so it's rejected exactly when, and only when, this
       // farmer already has a live waiting token. Once resolved (this
-      // farmer cancelled it, or it reaches 'done'/'no-show' via a future
-      // trusted operation) the very same rule lets the farmer book again
+      // farmer cancelled it, or it reaches 'done'/'noshow' through the
+      // center transition rule above) the very same rule lets the farmer book again
       // by overwriting this document with a brand-new, fully-revalidated
       // booking — same checks as a first-time create. Rules alone cannot
       // enforce a database-wide uniqueness constraint across arbitrary
@@ -309,9 +321,58 @@ service cloud.firestore {
           && get(centerPath(request.resource.data.centerId)).data.status == 'open'
           && request.resource.data.createdAt == request.time
           && request.resource.data.updatedAt == request.time
+          // bookingId: unique per booking. tokens/{uid} is reused across
+          // bookings, so purchase / notification document IDs are derived
+          // from uid + bookingId (see /purchases below).
+          && request.resource.data.bookingId is string
+          && request.resource.data.bookingId.matches('^[A-Za-z0-9_-]{20,64}$')
+          // declaredCrops: { cropCode: expectedQuintal }. Keys must all be
+          // crops this center accepts; 1..3 crops (keep in sync with
+          // MAX_CROPS_PER_TOKEN in app.js). LIMITATION: rules cannot loop
+          // over map values, so each quantity's type/range is only checked
+          // client-side. It is a non-financial estimate: the center enters
+          // the real weight, and /purchases pins declaredQuantity to it.
+          && request.resource.data.declaredCrops is map
+          && request.resource.data.declaredCrops.size() >= 1
+          && request.resource.data.declaredCrops.size() <= 3
+          && request.resource.data.declaredCrops.keys().hasOnly(
+               get(centerPath(request.resource.data.centerId)).data.acceptedCrops)
+          && request.resource.data.keys().hasAll([
+            'farmerId','farmerName','centerId','status','bookingId','declaredCrops','createdAt','updatedAt'
+          ])
           && request.resource.data.keys().hasOnly([
-            'farmerId','farmerName','centerId','status','createdAt','updatedAt'
+            'farmerId','farmerName','centerId','status','bookingId','declaredCrops','createdAt','updatedAt'
           ]);
+      }
+
+      // Center-side token transitions (Spark plan: direct client writes).
+      // A center may move a token of ITS OWN center from 'waiting' to
+      //   - 'noshow': changes only status + updatedAt, nothing else needed;
+      //   - 'done'  : only if, in the SAME batched write, the booking's
+      //               notification document is created (existsAfter). That
+      //               notification's own rule in turn requires the primary
+      //               purchase to be created in the same batch, so a token
+      //               can never reach 'done' without at least one valid
+      //               purchase. See /purchases and /notifications.
+      // A farmer can never reach either branch (role must be 'center').
+      // The users/{uid} profile is read exactly once (let) to keep the
+      // rules-call budget of the batched write small and deterministic.
+      function centerMayTransition(tid) {
+        let me = get(userPath(request.auth.uid)).data;
+        return me.role == 'center'
+          && me.status == 'active'
+          && me.centerId is string
+          && resource.data.centerId == me.centerId
+          && resource.data.status == 'waiting'
+          && onlyChanged(['status', 'updatedAt'])
+          && request.resource.data.updatedAt == request.time
+          && (
+            request.resource.data.status == 'noshow'
+            || (
+              request.resource.data.status == 'done'
+              && existsAfter(notificationPath(tid + '_' + resource.data.bookingId))
+            )
+          );
       }
 
       allow create: if isActiveFarmer()
@@ -333,6 +394,10 @@ service cloud.firestore {
       // `resource.data.farmerId == request.auth.uid` pin the write to
       // this farmer's own token — belt-and-suspenders, since the ID is
       // already pinned to the farmer's uid at create time.
+      // Center transition first: when it passes, the farmer rule below is
+      // never evaluated, which keeps the batched-write rule-call count low.
+      allow update: if signedIn() && centerMayTransition(tokenId);
+
       allow update: if isActiveFarmer()
         && tokenId == request.auth.uid
         && resource.data.farmerId == request.auth.uid
@@ -346,6 +411,9 @@ service cloud.firestore {
           (
             resource.data.status != 'waiting'
             && validBooking()
+            // a rebook must carry a brand-new bookingId, so an old
+            // booking's purchase IDs can never be reused or replayed
+            && request.resource.data.bookingId != resource.data.get('bookingId', '')
           )
         );
 
@@ -355,17 +423,132 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ------------------------------------------------------------------
+    // Purchases (Spark plan: created by the center's browser, no server).
+    //
+    // What these rules DO guarantee:
+    //  * only an active, gov-active center can create, and only for a token
+    //    of its own center that is 'waiting' and is moved to 'done' in the
+    //    SAME batched write (getAfter) -> purchase, notification and token
+    //    status change commit atomically or not at all;
+    //  * farmerId / farmerName / centerId / centerName / bookingId /
+    //    declaredQuantity are pinned to the token and center documents;
+    //  * document ID = tokenId_bookingId_crop -> at most one purchase per
+    //    crop per booking, ever (a second create is an update -> denied);
+    //  * amount == quantity * rate (0.01 tolerance for float rounding),
+    //    grade in A/B/C, sane caps, crop must be declared by the farmer AND
+    //    accepted by the center;
+    //  * no update / delete afterwards.
+    // What they CANNOT guarantee (unlike the old Admin-SDK function):
+    //  * the center itself chooses weight and rate (no server price table);
+    //  * a malicious ACTIVE center can still fabricate purchases against
+    //    its own waiting tokens; there is no rate limiting;
+    //  * rules can't loop, so "every declared crop was handled" is not
+    //    enforced, only "at least one valid purchase exists" (via the
+    //    notification's primaryCrop).
+    // Rules-call budget: this rule uses 4 document reads per purchase, the
+    // notification 4, the token update 2 -> 18 of the 20 allowed for a
+    // batched write when a token has 3 purchase lines (MAX_CROPS_PER_TOKEN).
+    // ------------------------------------------------------------------
     match /purchases/{purchaseId} {
-      allow get: if isActiveFarmer() && resource.data.farmerId == request.auth.uid;
-      allow list: if isActiveFarmer() && resource.data.farmerId == request.auth.uid;
-      allow create, update, delete: if false;
+      function validPurchase(pid) {
+        let d = request.resource.data;
+        let me = get(userPath(request.auth.uid)).data;
+        let tk = get(tokenPath(d.tokenId)).data;
+        let ce = get(centerPath(me.centerId)).data;
+        return me.role == 'center'
+          && me.status == 'active'
+          && me.centerId is string
+          && d.keys().hasAll([
+            'farmerId','farmerName','centerId','centerName','tokenId','bookingId','crop',
+            'quantity','declaredQuantity','rate','grade','amount','paymentStatus','purchaseDate'
+          ])
+          && d.keys().hasOnly([
+            'farmerId','farmerName','centerId','centerName','tokenId','bookingId','crop',
+            'quantity','declaredQuantity','rate','grade','amount','paymentStatus','purchaseDate'
+          ])
+          && d.tokenId is string
+          && d.bookingId is string
+          && d.crop is string
+          && d.crop.size() > 0
+          && d.crop.size() <= 60
+          && !d.crop.matches('.*/.*')
+          && pid == d.tokenId + '_' + d.bookingId + '_' + d.crop
+          // the token: this center's, still waiting, and moving to done now
+          && d.tokenId == d.farmerId
+          && tk.farmerId == d.farmerId
+          && tk.centerId == me.centerId
+          && tk.status == 'waiting'
+          && tk.bookingId == d.bookingId
+          && getAfter(tokenPath(d.tokenId)).data.status == 'done'
+          && tk.farmerName == d.farmerName
+          // the center
+          && d.centerId == me.centerId
+          && ce.govStatus == 'active'
+          && d.centerName == ce.centerName
+          && d.crop in ce.acceptedCrops
+          // the farmer declared this crop; declaredQuantity is copied, not typed
+          && d.crop in tk.declaredCrops.keys()
+          && d.declaredQuantity is number
+          && d.declaredQuantity == tk.declaredCrops[d.crop]
+          // money
+          && d.quantity is number && d.quantity > 0 && d.quantity <= 5000
+          && d.rate is number && d.rate > 0 && d.rate <= 100000
+          && d.grade in ['A', 'B', 'C']
+          && d.amount is number
+          && math.abs(d.amount - (d.quantity * d.rate)) <= 0.01
+          && d.paymentStatus == 'pending'
+          && d.purchaseDate == request.time;
+      }
+
+      allow get: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
+        || (isActiveCenter() && resource.data.centerId == callerCenterId());
+      allow list: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
+        || (isActiveCenter() && resource.data.centerId == callerCenterId());
+
+      allow create: if signedIn() && validPurchase(purchaseId);
+      allow update, delete: if false;
     }
 
+    // Notifications. A center may NOT write free text to a farmer: the only
+    // client-creatable notification is the fixed-shape 'token_served'
+    // record below (no `text` field; the app builds the sentence from
+    // `type`). Its ID is tokenId_bookingId, so each booking can produce it
+    // once, and it must be created in the same batch that moves that
+    // booking's token to 'done' together with a valid primary purchase.
     match /notifications/{notificationId} {
+      function validServedNotification(nid) {
+        let d = request.resource.data;
+        let me = get(userPath(request.auth.uid)).data;
+        let tk = get(tokenPath(d.userId)).data;
+        let ce = get(centerPath(me.centerId)).data;
+        return me.role == 'center'
+          && me.status == 'active'
+          && me.centerId is string
+          && d.keys().hasAll(['userId','type','centerId','centerName','bookingId','primaryCrop','createdAt'])
+          && d.keys().hasOnly(['userId','type','centerId','centerName','bookingId','primaryCrop','createdAt'])
+          && d.type == 'token_served'
+          && d.userId is string
+          && d.bookingId is string
+          && d.primaryCrop is string
+          && d.primaryCrop.size() > 0
+          && d.primaryCrop.size() <= 60
+          && !d.primaryCrop.matches('.*/.*')
+          && nid == d.userId + '_' + d.bookingId
+          && d.centerId == me.centerId
+          && d.centerName == ce.centerName
+          && tk.farmerId == d.userId
+          && tk.centerId == me.centerId
+          && tk.status == 'waiting'
+          && tk.bookingId == d.bookingId
+          && existsAfter(purchasePath(d.userId + '_' + d.bookingId + '_' + d.primaryCrop))
+          && d.createdAt == request.time;
+      }
+
       allow get: if signedIn() && resource.data.userId == request.auth.uid;
       allow list: if signedIn() && resource.data.userId == request.auth.uid;
-      // Notifications are generated by trusted server operations only.
-      allow create, update, delete: if false;
+      allow create: if signedIn() && validServedNotification(notificationId);
+      allow update, delete: if false;
     }
 
     match /rateLimits/{key} {

@@ -14,8 +14,10 @@ import * as cropsAdapter from "./data/cropsAdapter.js";
 /* A server endpoint is required for every operation that needs the Admin
    SDK or must not trust anything the browser says about itself: creating
    a center's login, registering a center, activating/deactivating a
-   center, recording a purchase, and resetting a password after phone
-   verification. See functions/index.js and SECURITY.md. */
+   center, and resetting a password after phone verification. (Recording a
+   purchase and marking a no-show no longer use a server endpoint — see
+   centerMarkServed / centerMarkNoShow, which write to Firestore directly and
+   are policed by firestore.rules on the Spark plan.) See functions/index.js and SECURITY.md. */
 const FUNCTIONS_BASE_URL = window.KS_FUNCTIONS_BASE_URL || "https://us-central1-kishan-setu-fd406.cloudfunctions.net";
 
 /* Both data adapters fetch their JSON once, in parallel, right away.
@@ -129,6 +131,24 @@ const I18N = {
     force_password_change: "पहली बार लॉगिन — नया पासवर्ड बनाएँ", set_password: "पासवर्ड सेट करें",
     saved: "सहेजा गया", loading: "लोड हो रहा है…", toggle_theme: "थीम बदलें",
     gov_password_note: "शासन खाते का पासवर्ड केवल आधिकारिक प्रशासनिक प्रक्रिया से बदला जा सकता है।",
+    bk_crops_hint: "इस केंद्र द्वारा स्वीकृत फ़सलें चुनें और हर फ़सल की अनुमानित मात्रा (क्विंटल) लिखें।",
+    bk_err_no_crop: "कम से कम एक फ़सल चुनें।", bk_err_qty: "हर चुनी हुई फ़सल की सही मात्रा (क्विंटल, अधिकतम 2 दशमलव) लिखें।",
+    bk_err_max_crops: "एक टोकन में अधिकतम 3 फ़सलें चुनी जा सकती हैं।", bk_err_no_accepted: "इस केंद्र ने अभी कोई फ़सल स्वीकृत नहीं की है।",
+    bk_err_crop_gone: "चुनी हुई फ़सल इस केंद्र पर अब स्वीकृत नहीं है।",
+    declared_crops: "फ़सलें (अनुमानित)", quintal_short: "क्विंटल",
+    serve_declared: "बताई गई मात्रा", serve_actual_weight: "वास्तविक वज़न (क्विंटल)", serve_not_brought: "यह फ़सल नहीं आई (वज़न 0/खाली) — छोड़ दी जाएगी",
+    rate_per_quintal: "दर (₹/क्विंटल)", select_grade: "ग्रेड चुनें",
+    diff_same: "बताई गई मात्रा के बराबर", diff_less: "बताई गई मात्रा से {n} क्विंटल कम", diff_more: "बताई गई मात्रा से {n} क्विंटल ज़्यादा",
+    serve_line_amount: "राशि",
+    serve_err_legacy: "यह टोकन पुराने तरीके से बना है (फ़सल विवरण नहीं है)। किसान से रद्द करके दोबारा बुक करने को कहें, या 'अनुपस्थित' चुनें।",
+    serve_err_none: "कम से कम एक फ़सल का वज़न दर्ज करें।", serve_err_grade: "हर खरीदी गई फ़सल का ग्रेड चुनें।",
+    err_invalid_input: "वज़न या दर सही नहीं है (0 से अधिक, अधिकतम 2 दशमलव)।",
+    err_permission: "अनुमति नहीं मिली — यह कार्य आपके केंद्र के लिए मान्य नहीं है।",
+    err_invalid_state: "टोकन की स्थिति सही नहीं है (अब प्रतीक्षा में नहीं है या रद्द हो चुका है)।",
+    err_already_processed: "यह टोकन पहले ही प्रोसेस हो चुका है।",
+    err_network_slow: "नेटवर्क धीमा है। दोबारा भेजने से पहले कतार जाँच लें — हो सकता है कार्य पूरा हो गया हो।",
+    err_unknown: "कुछ गलत हो गया। कृपया दोबारा प्रयास करें।",
+    notif_token_served: "{center} पर आपकी खरीद दर्ज हो गई है। विवरण 'पिछली खरीद' में देखें।",
   },
   en: {
     brand: "Kisan Setu", tagline: "Connecting farmers and procurement centers, simply.",
@@ -194,6 +214,24 @@ const I18N = {
     force_password_change: "First login — set a new password", set_password: "Set password",
     saved: "Saved", loading: "Loading…", toggle_theme: "Toggle theme",
     gov_password_note: "A government account's password can only be changed through the official administrative process.",
+    bk_crops_hint: "Choose the crops this center accepts and enter the expected quantity (quintal) for each.",
+    bk_err_no_crop: "Select at least one crop.", bk_err_qty: "Enter a valid quantity (quintal, max 2 decimals) for every selected crop.",
+    bk_err_max_crops: "You can select at most 3 crops per token.", bk_err_no_accepted: "This center has not listed any accepted crops yet.",
+    bk_err_crop_gone: "A selected crop is no longer accepted by this center.",
+    declared_crops: "Crops (expected)", quintal_short: "quintal",
+    serve_declared: "Declared", serve_actual_weight: "Actual weight (quintal)", serve_not_brought: "Crop not brought (weight 0/blank) — will be skipped",
+    rate_per_quintal: "Rate (₹/quintal)", select_grade: "Select grade",
+    diff_same: "Same as declared", diff_less: "{n} quintal less than declared", diff_more: "{n} quintal more than declared",
+    serve_line_amount: "Amount",
+    serve_err_legacy: "This token was created the old way (no crop details). Ask the farmer to cancel and book again, or choose 'No-show'.",
+    serve_err_none: "Enter the weight for at least one crop.", serve_err_grade: "Select a grade for every purchased crop.",
+    err_invalid_input: "Weight or rate is invalid (must be above 0, max 2 decimals).",
+    err_permission: "Permission denied — this action is not valid for your center.",
+    err_invalid_state: "Invalid token state (no longer waiting, or cancelled).",
+    err_already_processed: "This token has already been processed.",
+    err_network_slow: "The network is slow. Check the queue before retrying — the action may have completed.",
+    err_unknown: "Something went wrong. Please try again.",
+    notif_token_served: "Your purchase at {center} has been recorded. See 'Purchase history' for details.",
   },
 };
 function t(key) { return (I18N[store.lang] && I18N[store.lang][key]) || I18N.hi[key] || key; }
@@ -226,6 +264,7 @@ const store = {
   forcePasswordChange: false,
   _unsub: {},
   _confirmResult: null,
+  _opBusy: new Set(),
 };
 
 function newCaptcha() {
@@ -283,13 +322,78 @@ function paintModal() {
   document.getElementById("modal-cancel").addEventListener("click", closeModal);
   document.getElementById("modal-confirm").addEventListener("click", () => {
     const data = m.getData ? m.getData(root) : undefined;
+    // Optional: modals that pass `validate` keep themselves open (and show
+    // the message in their own #modal-error box) until the input is valid.
+    if (m.validate) {
+      const msg = m.validate(data);
+      if (msg) {
+        const box = root.querySelector("#modal-error");
+        if (box) { box.textContent = msg; box.style.display = ""; }
+        return;
+      }
+    }
     closeModal(); m.onConfirm && m.onConfirm(data);
   });
+  if (m.onOpen) m.onOpen(root);
 }
 
 function paint(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function fmtINR(n) { return "₹" + Number(n || 0).toLocaleString("en-IN"); }
+
+/* ============================== token / purchase helpers ==============================
+   Limits below are MIRRORED in firestore.rules — change both together. */
+const MAX_CROPS_PER_TOKEN = 3;        // rules: declaredCrops.size() <= 3 (also bounds the batched-write rule-call budget)
+const MAX_QTY_QUINTAL = 5000;         // rules: quantity <= 5000
+const MAX_RATE_PER_QUINTAL = 100000;  // rules: rate <= 100000
+const GRADES = ["A", "B", "C"];       // rules: grade in ['A','B','C']
+const OP_TIMEOUT_MS = 20000;
+
+function cropName(code) {
+  try {
+    if (cropsAdapter.isReady()) {
+      for (const g of cropsAdapter.getCropsByCategory()) {
+        for (const c of g.crops) {
+          if (c.code === code) return (store.lang === "hi" ? (c.nameHi || c.name) : c.name) || String(code);
+        }
+      }
+    }
+  } catch (_) { /* fall back to the raw code below */ }
+  return String(code);
+}
+/* Positive number, at most 2 decimals, <= max. Returns the number or null. */
+function parsePositive2dp(raw, max) {
+  const s = String(raw == null ? "" : raw).trim().replace(",", ".");
+  if (!/^\d{1,7}(\.\d{1,2})?$/.test(s)) return null;
+  const n = Number(s);
+  return n > 0 && n <= max ? n : null;
+}
+function roundMoney(n) { return Math.round(n * 100) / 100; }
+function newBookingId() {
+  const bytes = new Uint8Array(16);
+  (window.crypto || window.msCrypto).getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");   // 32 hex chars
+}
+function ksError(code, message, extra) { const e = new Error(message || code); e.code = code; if (extra) Object.assign(e, extra); return e; }
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(ksError("deadline-exceeded", "no server acknowledgement within " + ms + "ms")), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+const fsRead = (ref) => withTimeout(getDoc(ref), OP_TIMEOUT_MS);
+function declaredCropsSummary(map) {
+  if (!map || typeof map !== "object") return "";
+  return Object.entries(map).map(([code, q]) => `${cropName(code)} ${Number(q) || 0} ${t("quintal_short")}`).join(" · ");
+}
+/* Sync error -> i18n key, for flows that don't need to re-read anything. */
+function simpleErrorKey(e) {
+  const code = String((e && e.code) || "");
+  if (code === "unavailable" || code === "network-request-failed" || navigator.onLine === false) return "network_error";
+  if (code === "deadline-exceeded") return "err_network_slow";
+  if (code === "unauthenticated") return "session_expired";
+  if (code === "permission-denied") return "err_permission";
+  return "err_unknown";
+}
 
 /* ============================== auth helpers ============================== */
 function farmerEmail(username) { return `${username.trim().toLowerCase()}@f.kisansetu.app`; }
@@ -1171,12 +1275,57 @@ function subscribeFarmerHome() {
    message instead of a raw permission error; it is not what provides the
    uniqueness guarantee, and the catch block still handles the case where
    the pre-check missed a concurrent write. */
+function bookingCropsHtml(center) {
+  const accepted = Array.isArray(center.acceptedCrops) ? center.acceptedCrops.filter((c) => typeof c === "string" && c) : [];
+  const err = `<div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`;
+  if (!accepted.length) return `<p class="tiny muted">${t("bk_err_no_accepted")}</p>${err}`;
+  return `<p class="tiny muted mb-1">${t("bk_crops_hint")}</p>
+    <div style="max-height:50vh;overflow:auto">${accepted.map((code) => `
+      <div style="display:flex;gap:8px;align-items:center;margin:6px 0">
+        <label class="crop-chip" style="flex:1"><input type="checkbox" name="bk-crop" value="${esc(code)}"><span>${esc(cropName(code))}</span></label>
+        <div class="field" style="margin:0;width:120px"><input data-bk-qty="${esc(code)}" inputmode="decimal" placeholder="${t("quintal_short")}" aria-label="${esc(cropName(code))} — ${t("quintal_short")}"></div>
+      </div>`).join("")}</div>
+    ${err}`;
+}
+
 function startBooking(centerId, center) {
   if (!center || center.govStatus !== "active" || center.status !== "open") return;
   openModal({
-    title: t("book_token"), body: `${esc(center.centerName)} — ${t("est_wait")}: ${center.estWait ?? "—"} min`,
+    title: t("book_token"),
+    body: `${esc(center.centerName)} — ${t("est_wait")}: ${center.estWait ?? "—"} min${bookingCropsHtml(center)}`,
     confirmText: t("book_token"), cancelText: t("cancel"),
-    onConfirm: async () => {
+    onOpen: (root) => {
+      const box = root.querySelector(".modal") || root;
+      // Typing a quantity ticks the crop; ticking a crop jumps to its quantity.
+      box.addEventListener("input", (ev) => {
+        const q = ev.target && ev.target.dataset && ev.target.dataset.bkQty;
+        if (q == null) return;
+        const cb = Array.from(box.querySelectorAll('input[name="bk-crop"]')).find((c) => c.value === q);
+        if (cb) cb.checked = ev.target.value.trim() !== "";
+      });
+      box.addEventListener("change", (ev) => {
+        if (!ev.target || ev.target.name !== "bk-crop" || !ev.target.checked) return;
+        const inp = Array.from(box.querySelectorAll("[data-bk-qty]")).find((i) => i.dataset.bkQty === ev.target.value);
+        if (inp) inp.focus();
+      });
+    },
+    getData: (root) => {
+      const crops = {}; let selected = 0, bad = 0;
+      root.querySelectorAll('input[name="bk-crop"]:checked').forEach((cb) => {
+        selected++;
+        const inp = Array.from(root.querySelectorAll("[data-bk-qty]")).find((i) => i.dataset.bkQty === cb.value);
+        const q = parsePositive2dp(inp && inp.value, MAX_QTY_QUINTAL);
+        if (q == null || cb.value.includes("/")) bad++; else crops[cb.value] = q;
+      });
+      return { crops, selected, bad };
+    },
+    validate: (d) => {
+      if (!d.selected) return Array.isArray(center.acceptedCrops) && center.acceptedCrops.length ? t("bk_err_no_crop") : t("bk_err_no_accepted");
+      if (d.selected > MAX_CROPS_PER_TOKEN) return t("bk_err_max_crops");
+      if (d.bad) return t("bk_err_qty");
+      return "";
+    },
+    onConfirm: async (data) => {
       if (!auth.currentUser) { showToast(t("network_error")); return; }
       const uid = auth.currentUser.uid;
 
@@ -1195,7 +1344,7 @@ function startBooking(centerId, center) {
         });
       } catch (e) {
         console.error("[bookToken] pre-check failed:", e.code, e.message, e);
-        showToast(t("network_error"));
+        showToast(t(simpleErrorKey(e)));
         return;
       }
       // "Active token exists" is shown ONLY when the pre-check actually
@@ -1209,21 +1358,34 @@ function startBooking(centerId, center) {
       try {
         // Re-read the center fresh so we don't trust a possibly-stale
         // listener snapshot; the rules re-check this again server-side
-        // regardless.
+        // regardless (including that every declared crop is in the
+        // center's acceptedCrops).
         const centerSnap = await getDoc(doc(db, "centers", centerId));
         if (!centerSnap.exists() || centerSnap.data().govStatus !== "active" || centerSnap.data().status !== "open") {
-          showToast(t("network_error"));
+          showToast(t("err_permission"));
+          return;
+        }
+        const accepted = centerSnap.data().acceptedCrops;
+        if (!Array.isArray(accepted) || Object.keys(data.crops).some((c) => !accepted.includes(c))) {
+          showToast(t("bk_err_crop_gone"));
           return;
         }
         // The farmer's display name always comes from their own
         // users/{uid} document, never from anything typed on this screen.
         const userSnap = await getDoc(doc(db, "users", uid));
         const farmerName = userSnap.exists() ? userSnap.data().name : "";
+        // bookingId is unique per booking. tokens/{uid} is reused across
+        // bookings, so purchase/notification document IDs are derived from
+        // uid + bookingId — that is what lets each booking produce its own
+        // purchases exactly once, while a re-serve of the same booking
+        // can never create a second copy.
         await setDoc(doc(db, "tokens", uid), {
           farmerId: uid,
           farmerName,
           centerId,
           status: "waiting",
+          bookingId: newBookingId(),
+          declaredCrops: data.crops,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
@@ -1242,10 +1404,10 @@ function startBooking(centerId, center) {
         console.error("[bookToken] Firestore write failed:", e.code, e.message, e);
         // A failure reaching this point is NOT "active token exists" —
         // the pre-check above already ruled that out. It's a genuine
-        // write-time rejection (e.g. center not open/active, farmerName
-        // mismatch) and gets a generic error, not a false "already
-        // booked" message.
-        showToast(t("network_error"));
+        // write-time rejection (e.g. center not open/active, crop not
+        // accepted, farmerName mismatch) or a real network failure, and
+        // the toast says which.
+        showToast(t(simpleErrorKey(e)));
       }
     },
   });
@@ -1266,6 +1428,7 @@ function subscribeFarmerToken() {
           <div><div class="k">${t("center_id")}</div><div class="v">${esc(center.centerName || tok.centerId)}</div></div>
           <div><div class="k">${t("queue_position")}</div><div class="v">${tok.queuePosition ?? "—"}</div></div>
           <div><div class="k">${t("est_wait")}</div><div class="v">${center.estWait != null ? center.estWait + " min" : "—"}</div></div>
+          <div><div class="k">${t("declared_crops")}</div><div class="v">${esc(declaredCropsSummary(tok.declaredCrops)) || "—"}</div></div>
         </div>
       </div>
       <button class="btn ghost mt-2" id="cancel-token-btn">${t("cancel_token")}</button>`);
@@ -1300,7 +1463,7 @@ function subscribeFarmerToken() {
 }
 
 function subscribeFarmerHistory() {
-  const q1 = query(collection(db, "purchases"), where("farmerId", "==", store.user.uid), orderBy("purchaseDate", "desc"), limit(5));
+  const q1 = query(collection(db, "purchases"), where("farmerId", "==", store.user.uid), orderBy("purchaseDate", "desc"), limit(15));
   store._unsub.history = onSnapshot(q1, (qs) => {
     if (qs.empty) { paint("farmer-history", emptyState("history", t("no_history"), t("no_history_desc"))); return; }
     paint("farmer-history", `<div class="card">${qs.docs.map((d) => {
@@ -1322,7 +1485,10 @@ function subscribeFarmerNotif() {
     if (qs.empty) { paint("farmer-notif", emptyState("bell", t("no_notifications"), t("no_notifications_desc"))); return; }
     paint("farmer-notif", `<div class="card">${qs.docs.map((d) => {
       const n = d.data();
-      return `<div class="history-item"><span>${esc(n.text)}</span></div>`;
+      // "token_served" notifications carry structured fields only (a center
+      // can't write free text to a farmer); the sentence is built here.
+      const text = n.type === "token_served" ? t("notif_token_served").replace("{center}", n.centerName || "") : n.text;
+      return `<div class="history-item"><span>${esc(text)}</span></div>`;
     }).join("")}</div>`);
   }, () => paint("farmer-notif", emptyState("bell", t("no_notifications"), t("no_notifications_desc"))));
 }
@@ -1408,8 +1574,9 @@ function subscribeCenterQueue() {
     if (qs.empty) { paint("center-queue", emptyState("users", t("no_queue"), t("no_queue_desc"))); return; }
     paint("center-queue", `<div class="card">${qs.docs.map((d, i) => {
       const tk = { id: d.id, ...d.data() };
+      const cropsLine = declaredCropsSummary(tk.declaredCrops);
       return `<div class="queue-row"><span class="pos">${i + 1}</span>
-        <div class="col" style="flex:1"><b>${esc(tk.farmerName || tk.farmerId)}</b><span class="tiny muted">#${tk.id.slice(-6).toUpperCase()}</span></div>
+        <div class="col" style="flex:1"><b>${esc(tk.farmerName || tk.farmerId)}</b><span class="tiny muted">#${tk.id.slice(-6).toUpperCase()}</span>${cropsLine ? `<span class="tiny muted">${esc(cropsLine)}</span>` : ""}</div>
         ${i === 0 ? `<button class="btn" data-serve="${tk.id}">${t("mark_served")}</button><button class="btn ghost" data-noshow="${tk.id}">${t("mark_noshow")}</button>` : ""}
       </div>`;
     }).join("")}</div>`);
@@ -1418,39 +1585,247 @@ function subscribeCenterQueue() {
     document.querySelectorAll("[data-noshow]").forEach((b) => b.addEventListener("click", () => centerMarkNoShow(b.dataset.noshow)));
   }, () => paint("center-queue", emptyState("users", t("no_queue"), t("no_queue_desc"))));
 }
+
+/* ---- Center: serve / no-show — direct Firestore (Spark plan, no Cloud Functions) ----
+   What the rules (firestore.rules) enforce server-side, independent of this code:
+   - only an ACTIVE center, only for a token whose centerId == users/{uid}.centerId
+   - only while the token is still "waiting"
+   - purchase farmerId/centerId/farmerName/centerName/declaredQuantity must match the
+     token / center documents; amount must equal quantity x rate; crop must be one the
+     farmer declared AND the center accepts; grade must be A/B/C
+   - purchase doc ID = `${tokenId}_${bookingId}_${crop}` -> the token is the uniqueness anchor
+   - purchase + notification + token->"done" must be ONE atomic batch (rules use getAfter)
+   The browser only supplies crop / weight / rate / grade. Nothing about identity or
+   money is taken from the UI. */
+const SERVE_ERR_KEYS = {
+  "ks/invalid-input": "err_invalid_input",
+  "ks/invalid-grade": "serve_err_grade",
+  "ks/no-lines": "serve_err_none",
+  "ks/crop-not-accepted": "bk_err_crop_gone",
+};
+
+function serveRowsHtml(entries) {
+  return entries.map(([code, declared]) => {
+    const d = typeof declared === "number" ? declared : 0;
+    return `<div class="card" data-serve-row="${esc(code)}" data-declared="${d}" style="margin:8px 0">
+      <div class="row gap-s"><b>${esc(cropName(code))}</b><span class="spacer"></span><span class="tiny muted">${t("serve_declared")}: ${d} ${t("quintal_short")}</span></div>
+      <div class="grid-2">
+        <div class="field"><label>${t("serve_actual_weight")}</label><input data-f="weight" inputmode="decimal" value="${d}" aria-label="${t("serve_actual_weight")}"></div>
+        <div class="field"><label>${t("rate_per_quintal")}</label><input data-f="rate" inputmode="decimal" aria-label="${t("rate_per_quintal")}"></div>
+      </div>
+      <div class="field"><label>${t("grade")}</label><select data-f="grade" aria-label="${t("grade")}"><option value="">${t("select_grade")}</option>${GRADES.map((g) => `<option value="${g}">${t("grade")} ${g}</option>`).join("")}</select></div>
+      <div class="tiny" data-f="diff"></div>
+      <div class="tiny muted" data-f="amt"></div>
+    </div>`;
+  }).join("");
+}
+
+/* Live "less / more / same" + line amount + grand total inside the serve modal. */
+function wireServeModal(root) {
+  const box = root.querySelector(".modal") || root;
+  const refresh = () => {
+    let total = 0;
+    box.querySelectorAll("[data-serve-row]").forEach((row) => {
+      const declared = Number(row.dataset.declared) || 0;
+      const f = (name) => row.querySelector(`[data-f="${name}"]`);
+      const wRaw = f("weight").value.trim().replace(",", ".");
+      const notBrought = wRaw === "" || /^0+(\.0{1,2})?$/.test(wRaw);
+      const w = notBrought ? 0 : parsePositive2dp(wRaw, MAX_QTY_QUINTAL);
+      const r = parsePositive2dp(f("rate").value, MAX_RATE_PER_QUINTAL);
+      const diffEl = f("diff"), amtEl = f("amt");
+      amtEl.textContent = "";
+      if (notBrought) { diffEl.textContent = t("serve_not_brought"); return; }
+      if (w == null) { diffEl.textContent = t("err_invalid_input"); return; }
+      const diff = roundMoney(w - declared);
+      diffEl.textContent = diff === 0 ? t("diff_same") : (diff < 0 ? t("diff_less") : t("diff_more")).replace("{n}", String(Math.abs(diff)));
+      if (r != null) { const a = roundMoney(w * r); total += a; amtEl.textContent = `${t("serve_line_amount")}: ${fmtINR(a)}`; }
+    });
+    const tt = box.querySelector("#serve-total");
+    if (tt) tt.textContent = `${t("total")}: ${fmtINR(roundMoney(total))}`;
+  };
+  box.addEventListener("input", refresh);
+  refresh();
+}
+
+/* Turns the modal's raw strings into validated purchase lines.
+   acceptedCrops === null skips the accepted-crops check (modal-time only;
+   the submit path always passes the center's freshly-read list). */
+function normalizeServeLines(raw, declaredMap, acceptedCrops) {
+  const lines = [];
+  for (const r of raw || []) {
+    if (!declaredMap || typeof r.crop !== "string" || r.crop.includes("/")
+        || !Object.prototype.hasOwnProperty.call(declaredMap, r.crop) || typeof declaredMap[r.crop] !== "number") {
+      return { error: "ks/invalid-input" };
+    }
+    const wRaw = String(r.weightStr == null ? "" : r.weightStr).trim().replace(",", ".");
+    if (wRaw === "" || /^0+(\.0{1,2})?$/.test(wRaw)) continue;          // crop not brought -> skipped
+    const weight = parsePositive2dp(wRaw, MAX_QTY_QUINTAL);
+    const rate = parsePositive2dp(r.rateStr, MAX_RATE_PER_QUINTAL);
+    if (weight == null || rate == null) return { error: "ks/invalid-input" };
+    if (!GRADES.includes(r.grade)) return { error: "ks/invalid-grade" };
+    if (Array.isArray(acceptedCrops) && !acceptedCrops.includes(r.crop)) return { error: "ks/crop-not-accepted" };
+    lines.push({ crop: r.crop, weight, rate, grade: r.grade, declared: declaredMap[r.crop], amount: roundMoney(weight * rate) });
+  }
+  if (!lines.length) return { error: "ks/no-lines" };
+  if (lines.length > MAX_CROPS_PER_TOKEN) return { error: "ks/invalid-input" };
+  return { lines };
+}
+
 function centerMarkServed(tokenId, tokenData) {
+  const declared = tokenData && tokenData.declaredCrops;
+  if (!tokenData || typeof tokenData.bookingId !== "string" || !declared || typeof declared !== "object" || !Object.keys(declared).length) {
+    showToast(t("serve_err_legacy"));      // token created before crop details existed
+    return;
+  }
+  const entries = Object.entries(declared).slice(0, MAX_CROPS_PER_TOKEN);
   openModal({
     title: t("mark_served"),
-    body: `<div class="field"><label for="cm-crop">${t("crop")}</label><input id="cm-crop" required></div>
-      <div class="field"><label for="cm-weight">${t("weight")}</label><input id="cm-weight" inputmode="decimal" required></div>
-      <div class="field"><label for="cm-rate">${t("rate")}</label><input id="cm-rate" inputmode="numeric" required></div>
-      <div class="field"><label for="cm-grade">${t("grade")}</label><input id="cm-grade"></div>`,
+    body: `<p class="tiny muted">${esc(tokenData.farmerName || "")}</p>
+      <div style="max-height:60vh;overflow:auto">${serveRowsHtml(entries)}</div>
+      <div class="row gap-s"><b id="serve-total"></b></div>
+      <div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`,
     confirmText: t("confirm"),
-    getData: (root) => ({
-      crop: root.querySelector("#cm-crop").value.trim(),
-      weight: Number(root.querySelector("#cm-weight").value) || 0,
-      rate: Number(root.querySelector("#cm-rate").value) || 0,
-      grade: root.querySelector("#cm-grade").value.trim(),
-    }),
-    onConfirm: async (data) => {
-      try {
-        // Recording a purchase now goes through the createPurchase Cloud
-        // Function rather than a direct Firestore write: the server, not
-        // this browser tab, is what decides the real farmerId, centerId
-        // and amount (it re-derives them from the token being served and
-        // from this center's own server-verified identity), so a
-        // tampered request here can change only the crop/weight/rate/
-        // grade being recorded for a token that is genuinely this
-        // center's — never whose purchase it is or at which center.
-        await callFunction("createPurchase", {
-          tokenId, crop: data.crop, weight: data.weight, rate: data.rate, grade: data.grade || null,
-        });
-        showToast(t("saved"));
-      } catch (e) { showToast(t("network_error")); }
+    onOpen: wireServeModal,
+    getData: (root) => Array.from(root.querySelectorAll("[data-serve-row]")).map((row) => ({
+      crop: row.dataset.serveRow,
+      weightStr: row.querySelector('[data-f="weight"]').value,
+      rateStr: row.querySelector('[data-f="rate"]').value,
+      grade: row.querySelector('[data-f="grade"]').value,
+    })),
+    validate: (raw) => {
+      const r = normalizeServeLines(raw, Object.fromEntries(entries), null);
+      return r.error ? t(SERVE_ERR_KEYS[r.error] || "err_unknown") : "";
     },
+    onConfirm: (raw) => centerServeToken(tokenId, raw),
   });
 }
-async function centerMarkNoShow(tokenId) { try { await callFunction("markNoShow", { tokenId }); showToast(t("saved")); } catch (_) { showToast(t("network_error")); } }
+
+/* Maps a failed serve/no-show to a REAL category. permission-denied is ambiguous
+   (rules deny both "not yours" and "no longer waiting"), so we re-read the token
+   (a center can only read its own) to tell "already processed" apart. */
+async function classifyCenterOpError(e, tokenId) {
+  const code = String((e && e.code) || "");
+  if (code === "unauthenticated") return "session_expired";
+  if (code === "deadline-exceeded") return "err_network_slow";
+  if (code === "unavailable" || code === "network-request-failed") return "network_error";
+  if (SERVE_ERR_KEYS[code]) return SERVE_ERR_KEYS[code];
+  if (code === "ks/legacy-token") return "serve_err_legacy";
+  if (["permission-denied", "failed-precondition", "aborted", "already-exists", "not-found", "ks/not-waiting", "ks/token-missing"].includes(code)) {
+    try {
+      const s = await getDoc(doc(db, "tokens", tokenId));
+      if (!s.exists()) return "err_invalid_state";
+      const st = s.data().status;
+      if (st === "done" || st === "noshow") return "err_already_processed";
+      if (st !== "waiting") return "err_invalid_state";
+      return code === "permission-denied" ? "err_permission" : "err_invalid_state";
+    } catch (e2) {
+      return code === "permission-denied" || (e2 && e2.code === "permission-denied") ? "err_permission" : "err_invalid_state";
+    }
+  }
+  return "err_unknown";
+}
+
+async function centerServeToken(tokenId, rawLines) {
+  const op = "centerMarkServed";
+  if (store._opBusy.has(tokenId)) return;               // ignore double-clicks
+  store._opBusy.add(tokenId);
+  showToast(t("loading"));
+  try {
+    const cu = auth.currentUser;
+    if (!cu) throw ksError("unauthenticated", "no signed-in user");
+    if (navigator.onLine === false) throw ksError("unavailable", "browser reports offline");
+
+    // 1. Who is calling — re-read our own profile; never trust UI/store values.
+    const uSnap = await fsRead(doc(db, "users", cu.uid));
+    const u = uSnap.exists() ? uSnap.data() : null;
+    if (!u || u.role !== "center" || u.status !== "active" || typeof u.centerId !== "string") {
+      throw ksError("permission-denied", "caller is not an active center");
+    }
+    const centerId = u.centerId;
+
+    // 2. The token — fresh, and it must be this center's and still waiting.
+    const tSnap = await fsRead(doc(db, "tokens", tokenId));
+    if (!tSnap.exists()) throw ksError("ks/token-missing", "token does not exist");
+    const tok = tSnap.data();
+    if (tok.centerId !== centerId) throw ksError("permission-denied", "token belongs to another center");
+    if (tok.status !== "waiting") throw ksError("ks/not-waiting", "token status is " + tok.status);
+    // farmerId comes from the TOKEN. (tokenId == farmerId in this data model.)
+    if (typeof tok.bookingId !== "string" || typeof tok.farmerId !== "string" || typeof tok.farmerName !== "string"
+        || tok.farmerId !== tokenId || !tok.declaredCrops || typeof tok.declaredCrops !== "object") {
+      throw ksError("ks/legacy-token", "token has no booking details");
+    }
+
+    // 3. centerName / acceptedCrops come from the center document.
+    const cSnap = await fsRead(doc(db, "centers", centerId));
+    const center = cSnap.exists() ? cSnap.data() : null;
+    if (!center || center.govStatus !== "active") throw ksError("permission-denied", "center is not active");
+    if (typeof center.centerName !== "string" || !Array.isArray(center.acceptedCrops)) throw ksError("ks/bad-center", "center document is malformed");
+
+    // 4. Validate the typed lines; amount = weight x rate is computed HERE, and re-checked by the rules.
+    const norm = normalizeServeLines(rawLines, tok.declaredCrops, center.acceptedCrops);
+    if (norm.error) throw ksError(norm.error, "invalid serve input");
+    const lines = norm.lines;
+
+    // 5. ONE atomic batch: purchases + notification + token -> done.
+    const batch = writeBatch(db);
+    lines.forEach((l) => {
+      batch.set(doc(db, "purchases", `${tokenId}_${tok.bookingId}_${l.crop}`), {
+        farmerId: tok.farmerId,
+        farmerName: tok.farmerName,
+        centerId,
+        centerName: center.centerName,
+        tokenId,
+        bookingId: tok.bookingId,
+        crop: l.crop,
+        quantity: l.weight,
+        declaredQuantity: l.declared,
+        rate: l.rate,
+        grade: l.grade,
+        amount: l.amount,
+        paymentStatus: "pending",
+        purchaseDate: serverTimestamp(),
+      });
+    });
+    batch.set(doc(db, "notifications", `${tokenId}_${tok.bookingId}`), {
+      userId: tok.farmerId,
+      type: "token_served",
+      centerId,
+      centerName: center.centerName,
+      bookingId: tok.bookingId,
+      primaryCrop: lines[0].crop,
+      createdAt: serverTimestamp(),
+    });
+    batch.update(doc(db, "tokens", tokenId), { status: "done", updatedAt: serverTimestamp() });
+    await withTimeout(batch.commit(), OP_TIMEOUT_MS);
+    showToast(t("saved"));
+  } catch (e) {
+    // TEMP DIAGNOSTIC — remove once verified end-to-end.
+    console.error(`[${op}] TEMP diagnostic — error.code:`, e && e.code, "| error.message:", e && e.message);
+    showToast(t(await classifyCenterOpError(e, tokenId)));
+  } finally {
+    store._opBusy.delete(tokenId);
+  }
+}
+
+async function centerMarkNoShow(tokenId) {
+  const op = "centerMarkNoShow";
+  if (store._opBusy.has(tokenId)) return;
+  store._opBusy.add(tokenId);
+  try {
+    if (!auth.currentUser) throw ksError("unauthenticated", "no signed-in user");
+    if (navigator.onLine === false) throw ksError("unavailable", "browser reports offline");
+    // Rules allow exactly this write from a center: own-center token, currently
+    // "waiting", changing only status -> "noshow" and updatedAt.
+    await withTimeout(updateDoc(doc(db, "tokens", tokenId), { status: "noshow", updatedAt: serverTimestamp() }), OP_TIMEOUT_MS);
+    showToast(t("saved"));
+  } catch (e) {
+    // TEMP DIAGNOSTIC — remove once verified end-to-end.
+    console.error(`[${op}] TEMP diagnostic — error.code:`, e && e.code, "| error.message:", e && e.message);
+    showToast(t(await classifyCenterOpError(e, tokenId)));
+  } finally {
+    store._opBusy.delete(tokenId);
+  }
+}
 
 function subscribeCenterCapacity() {
   store._unsub.center = onSnapshot(doc(db, "centers", store.profile.centerId), (snap) => {
