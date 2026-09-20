@@ -8,13 +8,25 @@ import {
   doc, getDoc, setDoc, updateDoc, addDoc, collection, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
-import { STATES, DISTRICTS_BY_STATE_CODE, BLOCKS_BY_DISTRICT_CODE, VILLAGES_BY_BLOCK_CODE } from "./data/locations.js";
-import { CROPS } from "./data/crops.js";
+import * as locationAdapter from "./data/locationAdapter.js";
+import * as cropsAdapter from "./data/cropsAdapter.js";
 
 /* A server endpoint is required for the two operations that need the Admin
    SDK (creating a center's login and resetting a password after phone
    verification). See functions/index.js for the reference implementation. */
 const FUNCTIONS_BASE_URL = "";
+
+/* Both data adapters fetch their JSON once, in parallel, right away.
+   Local static files resolve near-instantly, but if a screen that needs
+   them (signup step 2/3, the Google first-time profile, center
+   registration) is somehow reached before they land, it renders a brief
+   loading note and repaints itself the moment this resolves — never a
+   silent empty state pretending the data doesn't exist. */
+Promise.all([locationAdapter.ready(), cropsAdapter.ready()]).then(() => {
+  const onDataScreen = store.screen === "signup" || store.screen === "googleComplete"
+    || (store.screen === "gov" && store.govTab === "register");
+  if (onDataScreen) paintScreen();
+}).catch(() => {});
 
 /* ============================== icons ============================== */
 const ICONS = {
@@ -68,7 +80,7 @@ const I18N = {
     step: "चरण", next: "आगे", back: "पीछे", submit: "जमा करें", save: "सहेजें", cancel: "रद्द करें", confirm: "पुष्टि करें",
     full_name: "पूरा नाम", state: "राज्य", district: "ज़िला", block: "ब्लॉक", village: "गाँव",
     select_state: "राज्य चुनें", select_district: "ज़िला चुनें", select_block: "ब्लॉक चुनें", select_village: "गाँव चुनें",
-    location_data_pending: "इस ज़िले/ब्लॉक के लिए डेटा अभी जोड़ा जाना बाकी है",
+    location_data_pending: "इस ज़िले/ब्लॉक के लिए डेटा अभी जोड़ा जाना बाकी है", loading: "लोड हो रहा है…",
     main_crops: "मुख्य फ़सलें", main_crops_hint: "एक या अधिक फ़सलें चुनें", accept_terms: "मैं नियम व शर्तें स्वीकार करता/करती हूँ",
     signup_step1: "मूल जानकारी", signup_step2: "स्थान", signup_step3: "मुख्य फ़सलें", signup_step4: "सत्यापन",
     continue_with_google: "Google से जारी रखें", or_divider: "या",
@@ -132,7 +144,7 @@ const I18N = {
     step: "Step", next: "Next", back: "Back", submit: "Submit", save: "Save", cancel: "Cancel", confirm: "Confirm",
     full_name: "Full name", state: "State", district: "District", block: "Block", village: "Village",
     select_state: "Select state", select_district: "Select district", select_block: "Select block", select_village: "Select village",
-    location_data_pending: "Data for this district/block hasn't been added yet",
+    location_data_pending: "Data for this district/block hasn't been added yet", loading: "Loading…",
     main_crops: "Main crops", main_crops_hint: "Choose one or more crops", accept_terms: "I accept the terms and conditions",
     signup_step1: "Basic details", signup_step2: "Location", signup_step3: "Main crops", signup_step4: "Verification",
     continue_with_google: "Continue with Google", or_divider: "or",
@@ -419,12 +431,13 @@ async function handleForcePasswordChange(e) {
 function logout() { signOut(auth); }
 
 /* ---- location selector (India -> State -> District -> Block -> Village) ----
-   Districts/blocks/villages come from data/locations.js. Where that dataset
-   has no entries yet for a given state/district, the step shows an inline
+   Backed entirely by data/locationAdapter.js, which wraps data/locations.json
+   (a Government-LGD-sourced contract file). Where that dataset has no
+   entries yet for a given state/district/block, the step shows an inline
    notice instead of inventing options, and does not require that field. */
-function districtsFor(stateCode) { return DISTRICTS_BY_STATE_CODE[stateCode] || []; }
-function blocksFor(districtCode) { return BLOCKS_BY_DISTRICT_CODE[districtCode] || []; }
-function villagesFor(blockCode) { return VILLAGES_BY_BLOCK_CODE[blockCode] || []; }
+function districtsFor(stateCode) { return locationAdapter.getDistricts(stateCode); }
+function blocksFor(districtCode) { return locationAdapter.getBlocks(districtCode); }
+function villagesFor(blockCode) { return locationAdapter.getVillages(blockCode); }
 function nameFromList(list, code) {
   const row = list.find((r) => r.code === code);
   return row ? (store.lang === "hi" ? row.nameHi : row.name) : "";
@@ -437,10 +450,12 @@ function locationSelectHtml(name, label, options, value, disabled) {
     </select></div>`;
 }
 function locationStepHtml(d) {
+  if (!locationAdapter.isReady()) return `<p class="tiny muted">${t("loading")}</p>`;
+  const states = locationAdapter.getStates();
   const districts = districtsFor(d.stateCode);
   const blocks = districts.length ? blocksFor(d.districtCode) : [];
   const villages = blocks.length ? villagesFor(d.blockCode) : [];
-  let html = locationSelectHtml("state", t("state"), STATES, d.stateCode, false);
+  let html = locationSelectHtml("state", t("state"), states, d.stateCode, false);
   if (!d.stateCode) return html;
   html += districts.length
     ? locationSelectHtml("district", t("district"), districts, d.districtCode, false)
@@ -463,12 +478,16 @@ function wireLocationSelects(root, onChange) {
   });
 }
 
-/* ---- main crops multi-select ---- */
+/* ---- main crops multi-select, grouped by category from crops.json ---- */
 function cropsStepHtml(selected) {
+  if (!cropsAdapter.isReady()) return `<p class="tiny muted">${t("loading")}</p>`;
+  const groups = cropsAdapter.getCropsByCategory();
   return `<p class="tiny muted mb-1">${t("main_crops_hint")}</p>
-    <div class="crop-grid">${CROPS.map((c) => `
-      <label class="crop-chip"><input type="checkbox" name="crops" value="${esc(c.code)}" ${selected.includes(c.code) ? "checked" : ""}>
-        <span>${esc(store.lang === "hi" ? c.nameHi : c.name)}</span></label>`).join("")}</div>`;
+    ${groups.map((g) => `
+      <p class="crop-group-title">${esc(g.category || "")}</p>
+      <div class="crop-grid">${g.crops.map((c) => `
+        <label class="crop-chip"><input type="checkbox" name="crops" value="${esc(c.code)}" ${selected.includes(c.code) ? "checked" : ""}>
+          <span>${esc(store.lang === "hi" ? c.nameHi : c.name)}</span></label>`).join("")}</div>`).join("")}`;
 }
 
 /* ---- farmer signup ---- */
@@ -509,7 +528,7 @@ function signupBack() { store.signupStep = Math.max(1, store.signupStep - 1); pa
 function locationPayload(d) {
   return {
     country: "India",
-    state: nameFromList(STATES, d.stateCode) || null, stateCode: d.stateCode || null,
+    state: nameFromList(locationAdapter.getStates(), d.stateCode) || null, stateCode: d.stateCode || null,
     district: nameFromList(districtsFor(d.stateCode), d.districtCode) || null, districtCode: d.districtCode || null,
     block: nameFromList(blocksFor(d.districtCode), d.blockCode) || null, blockCode: d.blockCode || null,
     village: nameFromList(villagesFor(d.blockCode), d.villageCode) || null, villageCode: d.villageCode || null,

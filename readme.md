@@ -14,6 +14,15 @@ system, replacing the old simulated/demo version.
 - `functions/index.js` — the two operations that genuinely need the Admin
   SDK (see below); deploy with `firebase deploy --only functions`, then set
   `FUNCTIONS_BASE_URL` near the top of `app.js` to the deployed URL.
+- `data/locations.json`, `data/crops.json` — the location and crop master
+  data, unmodified from what was supplied for this project.
+- `data/locationAdapter.js`, `data/cropsAdapter.js` — the only modules that
+  know those two JSON files' shapes. Signup, the Google first-time-profile
+  flow, and center registration all call `getStates()`/`getDistricts()`/
+  `getBlocks()`/`getVillages()` and `getCrops()`/`getCropsByCategory()`,
+  never the raw JSON — so the real data source (an LGD import into
+  Firestore, or an API) can replace these two files' internals later
+  without touching any signup UI code.
 
 ## What changed from the old version
 
@@ -83,9 +92,17 @@ will work from then on.
 
 ## Known gaps / good next steps
 
-- The state → district → block → village pickers are free-text fields, not
-  a real government administrative dataset — plug in an official list when
-  you have one.
+- `data/locations.json` is a data **contract**, not a full India dataset —
+  by design (see the file's own `status: "SOURCE_REFERENCE_ONLY"` and
+  `integration_notes`). Right now the only selectable location below state
+  level is its one development sample: Uttar Pradesh → Bareilly → Bareilly's
+  15 blocks, and village options are empty everywhere, because no
+  village-level data has been imported yet. Importing a verified LGD
+  extract into this same file's shape (or swapping `locationAdapter.js`'s
+  internals for a Firestore-backed or API-backed loader) is what unlocks
+  every other state/district/block/village — the dependent-selector UI
+  and the signup/registration flows built on it do not need to change
+  when that happens.
 - The captcha is a simple accessible arithmetic challenge. Section 18 asks
   for Firebase App Check/reCAPTCHA instead where possible — swap it in
   `captchaHtml()`/`checkCaptcha()` once you have a site key.
@@ -93,38 +110,4 @@ will work from then on.
   analytics/ranking views from the original brief, aren't built yet — the
   data model (`purchases`, `tokens`, `centers`) is already shaped to
   support them.
-
-
-  Kisan Setu data files
-
-Files
-
-crops.json — centralized crop master list for multi-select UI.
-
-locations.json — State → District → Block → Village data contract plus a clearly marked Bareilly development sample.
-
-Important
-
-locations.json intentionally does NOT contain a fake all-India village database. The official Government of India Local Government Directory (LGD) is the recommended primary source and is maintained as a changing directory.
-
-For Kisan Setu, keep the location adapter separate from app.js. The signup form should call functions such as:
-
-getStates()
-
-getDistricts(stateId)
-
-getBlocks(districtId)
-
-getVillages(blockId)
-
-The final Firebase profile should store the selected IDs/codes and names, not a giant duplicated location tree.
-
-Sources
-
-Primary: Government of India, Ministry of Panchayati Raj — LGD
-https://data.gov.in/catalog/local-government-directory-lgd
-https://lgdirectory.gov.in/demo/downloadDirectory.do
-
-Reference: Census 2011 Location Code Directory
-https://censusindia.gov.in/nada/index.php/catalog/42648/study-description
   

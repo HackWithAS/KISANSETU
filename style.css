@@ -339,6 +339,24 @@ tr:last-child td { border-bottom: 0; }
 .auth-foot-links { display: flex; justify-content: center; gap: 18px; margin-top: 22px; font-size: 13px; }
 .auth-foot-links button { background: none; border: 0; color: var(--text-muted); cursor: pointer; text-decoration: underline; }
 
+.auth-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0; color: var(--text-muted); font-size: 12.5px; }
+.auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+.google-btn { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.google-btn svg { width: 16px; height: 16px; }
+
+.crop-group-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 12px 0 6px; }
+.crop-group-title:first-child { margin-top: 0; }
+.crop-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 14px; }
+.crop-chip {
+  display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--surface);
+  border-radius: var(--radius-s); padding: 9px 10px; font-size: 13.5px; cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.crop-chip:has(input:checked) { border-color: var(--accent-strong); background: rgba(47,107,58,0.07); font-weight: 600; }
+.crop-chip input { accent-color: var(--accent-strong); width: 16px; height: 16px; flex-shrink: 0; }
+@media (min-width: 480px) { .crop-grid { grid-template-columns: repeat(3, 1fr); } }
+
 .captcha-box {
   display: flex; align-items: center; gap: 12px; border: 1px dashed var(--line); border-radius: var(--radius-s);
   padding: 10px 12px; margin-bottom: 14px; background: var(--bg);
