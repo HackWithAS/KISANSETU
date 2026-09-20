@@ -1151,17 +1151,63 @@ function subscribeFarmerHome() {
   });
 }
 
+/* Spark-plan token booking: the farmer's own browser tab writes the token
+   document directly (no Cloud Function/Admin SDK on this plan).
+   The document ID is fixed to the farmer's own Auth uid rather than a
+   random ID. That single choice is what makes "only one active token per
+   farmer" an atomic, server-enforced guarantee instead of a client-side
+   hope: Firestore itself classifies a write to an existing document as an
+   "update", never a "create", so if this farmer already has a token
+   document here, this exact write is evaluated against the tokens
+   `allow update` rule — which is `false` — no matter how many booking
+   attempts race each other. The pre-check below (reading tokens/{uid})
+   only exists to show a friendly message instead of a raw permission
+   error; it is not what provides the uniqueness guarantee, and the catch
+   block still handles the case where the pre-check missed a concurrent
+   write.
+   LIMITATION: because the slot is keyed by farmerId, once a token
+   document exists here (in any status) this farmer cannot book again
+   until that document is removed or reset by a trusted server operation
+   — see cancelToken/markNoShow in the flow audit. */
 function startBooking(centerId, center) {
   if (!center || center.govStatus !== "active" || center.status !== "open") return;
   openModal({
     title: t("book_token"), body: `${esc(center.centerName)} — ${t("est_wait")}: ${center.estWait ?? "—"} min`,
     confirmText: t("book_token"), cancelText: t("cancel"),
     onConfirm: async () => {
+      if (!auth.currentUser) { showToast(t("network_error")); return; }
+      const uid = auth.currentUser.uid;
       try {
-        await callFunction("bookToken", { centerId });
+        // Friendly pre-check only — see note above on why this is not
+        // what actually prevents a duplicate active token.
+        const existing = await getDoc(doc(db, "tokens", uid));
+        if (existing.exists() && existing.data().status === "waiting") {
+          showToast("आपके पास पहले से एक सक्रिय टोकन है।");
+          return;
+        }
+        // Re-read the center fresh so we don't trust a possibly-stale
+        // listener snapshot; the rules re-check this again server-side
+        // regardless.
+        const centerSnap = await getDoc(doc(db, "centers", centerId));
+        if (!centerSnap.exists() || centerSnap.data().govStatus !== "active" || centerSnap.data().status !== "open") {
+          showToast(t("network_error"));
+          return;
+        }
+        // The farmer's display name always comes from their own
+        // users/{uid} document, never from anything typed on this screen.
+        const userSnap = await getDoc(doc(db, "users", uid));
+        const farmerName = userSnap.exists() ? userSnap.data().name : "";
+        await setDoc(doc(db, "tokens", uid), {
+          farmerId: uid,
+          farmerName,
+          centerId,
+          status: "waiting",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
         showToast(t("saved")); store.farmerTab = "token"; mount();
       } catch (e) {
-        showToast(e.message === "active-token-exists" ? "आपके पास पहले से एक सक्रिय टोकन है।" : t("network_error"));
+        showToast(e.code === "permission-denied" ? "आपके पास पहले से एक सक्रिय टोकन है।" : t("network_error"));
       }
     },
   });

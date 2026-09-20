@@ -15,6 +15,10 @@ service cloud.firestore {
       return /databases/$(database)/documents/farmers/$(uid);
     }
 
+    function centerPath(centerId) {
+      return /databases/$(database)/documents/centers/$(centerId);
+    }
+
     function callerExists() {
       return signedIn() && exists(userPath(request.auth.uid));
     }
@@ -259,8 +263,43 @@ service cloud.firestore {
         (isActiveCenter() && resource.data.centerId == callerCenterId())
       );
 
-      // Token creation and all status transitions are server-controlled.
-      allow create, delete, update: if false;
+      // Spark-plan farmer token booking: the farmer's own browser tab
+      // writes this document directly (no Cloud Function/Admin SDK on
+      // this plan). The document ID is pinned to the farmer's own uid
+      // (see {tokenId} below), which is what makes "only one active
+      // waiting token per farmer" atomic without a transaction: Firestore
+      // classifies a write to an already-existing document as an
+      // "update", never a "create", so a second booking attempt for the
+      // same farmer — however it races with the first — is evaluated
+      // against `allow update`, which stays `false` below. Rules alone
+      // cannot enforce a database-wide uniqueness constraint across
+      // arbitrary document IDs; pinning the ID to the farmer's uid is
+      // what sidesteps that limitation instead of requiring one.
+      //
+      // LIMITATION: because the slot is keyed by farmerId, once this
+      // document exists (in any status) this farmer cannot create another
+      // one until it is removed or reset by a trusted server operation —
+      // a farmer has no update/delete rights over their own token below,
+      // so the client alone can never "recycle" the slot. Freeing it
+      // after cancel/no-show/completion remains the job of a
+      // server-controlled flow (see cancelToken/markNoShow).
+      allow create: if isActiveFarmer()
+        && tokenId == request.auth.uid
+        && request.resource.data.farmerId == request.auth.uid
+        && request.resource.data.farmerName == caller().name
+        && request.resource.data.status == 'waiting'
+        && request.resource.data.centerId is string
+        && get(centerPath(request.resource.data.centerId)).data.govStatus == 'active'
+        && get(centerPath(request.resource.data.centerId)).data.status == 'open'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.keys().hasOnly([
+          'farmerId','farmerName','centerId','status','createdAt','updatedAt'
+        ]);
+
+      // All status transitions (waiting -> done/cancelled/no-show) and any
+      // other change remain server-controlled, exactly as before.
+      allow update, delete: if false;
     }
 
     match /purchases/{purchaseId} {
