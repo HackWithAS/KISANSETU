@@ -1209,6 +1209,11 @@ function startBooking(centerId, center) {
         });
         showToast(t("saved")); store.farmerTab = "token"; mount();
       } catch (e) {
+        // Temporary diagnostic log — remove once the real cause is found.
+        // This does not change what the farmer sees; it only makes the
+        // actual Firebase error (code + message) visible in DevTools
+        // console instead of being silently swallowed.
+        console.error("[bookToken] Firestore write failed:", e.code, e.message, e);
         showToast(e.code === "permission-denied" ? t("active_token_exists") : t("network_error"));
       }
     },
@@ -1253,7 +1258,10 @@ function subscribeFarmerToken() {
               updatedAt: serverTimestamp(),
             });
             showToast(t("saved"));
-          } catch (_) { showToast(t("network_error")); }
+          } catch (e) {
+            console.error("[cancelToken] Firestore write failed:", e.code, e.message, e);
+            showToast(t("network_error"));
+          }
         },
       });
     });
