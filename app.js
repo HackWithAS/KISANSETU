@@ -1,11 +1,11 @@
-import { auth, db } from "./firebase-config.js";
+import { auth, db, getAppCheckHeaders } from "./firebase-config.js";
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged,
   signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider,
   RecaptchaVerifier, signInWithPhoneNumber, GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
-  doc, getDoc, setDoc, updateDoc, addDoc, collection, query, where, orderBy,
+  doc, getDoc, setDoc, updateDoc, collection, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, Timestamp
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import * as locationAdapter from "./data/locationAdapter.js";
@@ -16,7 +16,7 @@ import * as cropsAdapter from "./data/cropsAdapter.js";
    a center's login, registering a center, activating/deactivating a
    center, recording a purchase, and resetting a password after phone
    verification. See functions/index.js and SECURITY.md. */
-const FUNCTIONS_BASE_URL = "";
+const FUNCTIONS_BASE_URL = window.KS_FUNCTIONS_BASE_URL || "https://us-central1-kishan-setu-fd406.cloudfunctions.net";
 
 /* Both data adapters fetch their JSON once, in parallel, right away.
    Local static files resolve near-instantly, but if a screen that needs
@@ -78,7 +78,7 @@ const I18N = {
     wrong_password: "गलत पासवर्ड", wrong_username: "उपयोगकर्ता नाम गलत है", too_many_attempts: "बहुत अधिक प्रयास, कुछ समय बाद पुनः प्रयास करें",
     session_expired: "कृपया दोबारा लॉगिन करें।", otp_invalid: "OTP गलत है या समाप्त हो गया है।",
     field_required: "यह फ़ील्ड आवश्यक है", captcha_wrong: "सत्यापन कोड गलत है",
-    passwords_no_match: "पासवर्ड मेल नहीं खाते", weak_password: "पासवर्ड कम से कम 6 अक्षर का होना चाहिए",
+    passwords_no_match: "पासवर्ड मेल नहीं खाते", weak_password: "पासवर्ड कम से कम 8 अक्षर का होना चाहिए",
     step: "चरण", next: "आगे", back: "पीछे", submit: "जमा करें", save: "सहेजें", cancel: "रद्द करें", confirm: "पुष्टि करें",
     full_name: "पूरा नाम", state: "राज्य", district: "ज़िला", block: "ब्लॉक", village: "गाँव",
     select_state: "राज्य चुनें", select_district: "ज़िला चुनें", select_block: "ब्लॉक चुनें", select_village: "गाँव चुनें",
@@ -124,7 +124,7 @@ const I18N = {
     admin_details: "एडमिन विवरण", admin_name: "एडमिन का नाम", create_center: "केंद्र बनाएँ",
     center_created: "केंद्र बनाया गया", initial_credentials: "प्रारंभिक लॉगिन विवरण",
     overview_title: "अवलोकन", total_centers: "कुल केंद्र", open_centers: "खुले केंद्र", total_farmers: "पंजीकृत किसान", total_purchases_today: "आज की खरीद",
-    alerts_title: "चेतावनियाँ", no_alerts: "सब ठीक चल रहा है", activate: "सक्रिय करें", deactivate: "निष्क्रिय करें",
+    alerts_title: "चेतावनियाँ", no_alerts: "सब ठीक चल रहा है", activate: "सक्रिय करें", deactivate: "निष्क्रिय करें", gov_active: "सरकार द्वारा सक्रिय", gov_inactive: "सरकार द्वारा निष्क्रिय",
     force_password_change: "पहली बार लॉगिन — नया पासवर्ड बनाएँ", set_password: "पासवर्ड सेट करें",
     saved: "सहेजा गया", loading: "लोड हो रहा है…", toggle_theme: "थीम बदलें",
     gov_password_note: "शासन खाते का पासवर्ड केवल आधिकारिक प्रशासनिक प्रक्रिया से बदला जा सकता है।",
@@ -142,7 +142,7 @@ const I18N = {
     wrong_password: "Incorrect password", wrong_username: "Incorrect username", too_many_attempts: "Too many attempts, try again later",
     session_expired: "Please sign in again.", otp_invalid: "OTP is incorrect or has expired.",
     field_required: "This field is required", captcha_wrong: "Verification code is incorrect",
-    passwords_no_match: "Passwords do not match", weak_password: "Password must be at least 6 characters",
+    passwords_no_match: "Passwords do not match", weak_password: "Password must be at least 8 characters",
     step: "Step", next: "Next", back: "Back", submit: "Submit", save: "Save", cancel: "Cancel", confirm: "Confirm",
     full_name: "Full name", state: "State", district: "District", block: "Block", village: "Village",
     select_state: "Select state", select_district: "Select district", select_block: "Select block", select_village: "Select village",
@@ -188,7 +188,7 @@ const I18N = {
     admin_details: "Admin details", admin_name: "Admin name", create_center: "Create center",
     center_created: "Center created", initial_credentials: "Initial login details",
     overview_title: "Overview", total_centers: "Total centers", open_centers: "Centers open", total_farmers: "Registered farmers", total_purchases_today: "Purchases today",
-    alerts_title: "Alerts", no_alerts: "Everything looks normal", activate: "Activate", deactivate: "Deactivate",
+    alerts_title: "Alerts", no_alerts: "Everything looks normal", activate: "Activate", deactivate: "Deactivate", gov_active: "Government active", gov_inactive: "Government inactive",
     force_password_change: "First login — set a new password", set_password: "Set password",
     saved: "Saved", loading: "Loading…", toggle_theme: "Toggle theme",
     gov_password_note: "A government account's password can only be changed through the official administrative process.",
@@ -299,9 +299,10 @@ async function callFunction(name, payload) {
   // createCenterAccount and resetPasswordWithPhone both verify this token
   // server-side with the Admin SDK before doing anything privileged.
   const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+  const appCheckHeaders = await getAppCheckHeaders();
   const res = await fetch(`${FUNCTIONS_BASE_URL}/${name}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
+    headers: { "Content-Type": "application/json", ...appCheckHeaders, ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "request-failed");
@@ -316,10 +317,26 @@ async function callFunction(name, payload) {
 // here against Firestore — not against which tab the browser happened
 // to submit.
 let pendingLoginRole = null;
+let profileProvisioningUid = null;
 
 onAuthStateChanged(auth, async (user) => {
+  // Phone OTP creates a temporary Auth session for password recovery.
+  // Never route that session into a normal role dashboard.
+  if (store.screen === "forgot") {
+    store.user = user || null;
+    return;
+  }
+
   detachAllListeners();
   if (!user) { store.user = null; store.profile = null; store.screen = "login"; mount(); return; }
+
+  // Prevent the Auth listener from racing the two Firestore profile writes
+  // performed immediately after new-account creation.
+  if (profileProvisioningUid === user.uid) {
+    store.user = user;
+    return;
+  }
+
   try {
     const snap = await getDoc(doc(db, "users", user.uid));
     if (!snap.exists()) {
@@ -335,12 +352,8 @@ onAuthStateChanged(auth, async (user) => {
       pendingLoginRole = null;
       store.user = user; store.screen = "login"; mount(); return;
     }
+
     const profile = snap.data();
-    // The account is real and the password was right, but it was
-    // authenticated from a different login context (e.g. a Government
-    // account's credentials typed into the Farmer tab). Reject it the
-    // same way a wrong password would be rejected — no hint that the
-    // account itself exists under another role.
     if (pendingLoginRole && profile.role !== pendingLoginRole) {
       pendingLoginRole = null;
       await signOut(auth);
@@ -349,6 +362,7 @@ onAuthStateChanged(auth, async (user) => {
       mount();
       return;
     }
+
     pendingLoginRole = null;
     store.user = user; store.profile = profile;
     store.lang = store.profile.language || store.lang;
@@ -461,7 +475,7 @@ async function handleForcePasswordChange(e) {
   clearFormErrors(form);
   const p1 = form.newPassword.value, p2 = form.confirmPassword.value;
   let bad = false;
-  if (p1.length < 6) { setFieldError(form, "newPassword", t("weak_password")); bad = true; }
+  if (p1.length < 8) { setFieldError(form, "newPassword", t("weak_password")); bad = true; }
   if (p1 !== p2) { setFieldError(form, "confirmPassword", t("passwords_no_match")); bad = true; }
   if (bad) return;
   setBtnLoading(form, true);
@@ -553,12 +567,13 @@ function signupNext(e) {
     let bad = false;
     if (!d.fullName) { setFieldError(form, "fullName", t("field_required")); bad = true; }
     if (!/^[6-9]\d{9}$/.test(d.mobile)) { setFieldError(form, "mobile", t("field_required")); bad = true; }
-    if (!d.username) { setFieldError(form, "username", t("field_required")); bad = true; }
-    if (d.password.length < 6) { setFieldError(form, "password", t("weak_password")); bad = true; }
+    if (!/^[a-z0-9._-]{3,30}$/.test(d.username.toLowerCase())) { setFieldError(form, "username", t("field_required")); bad = true; }
+    if (d.password.length < 8) { setFieldError(form, "password", t("weak_password")); bad = true; }
     if (d.password !== d.confirmPassword) { setFieldError(form, "confirmPassword", t("passwords_no_match")); bad = true; }
     if (bad) return;
   } else if (store.signupStep === 2) {
     if (!d.stateCode) { setFieldError(form, "state", t("field_required")); return; }
+    if (!d.districtCode) { setFieldError(form, "district", t("field_required")); return; }
   } else if (store.signupStep === 3) {
     d.crops = Array.from(form.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
     if (!d.crops.length) { showAuthError(form, t("field_required")); return; }
@@ -591,19 +606,27 @@ async function submitSignup(form) {
   setBtnLoading(form, true);
   try {
     const cred = await createUserWithEmailAndPassword(auth, farmerEmail(d.username), d.password);
-    await setDoc(doc(db, "users", cred.user.uid), {
-      uid: cred.user.uid, role: "farmer", name: d.fullName, username: d.username,
+    profileProvisioningUid = cred.user.uid;
+    const userData = {
+      uid: cred.user.uid, role: "farmer", name: d.fullName, username: d.username.toLowerCase(),
       authProvider: "password", language: store.lang, theme: "light", status: "active", createdAt: serverTimestamp(),
-    });
+    };
+    await setDoc(doc(db, "users", cred.user.uid), userData);
     const loc = locationPayload(d);
-    await setDoc(doc(db, "farmers", cred.user.uid), {
-      name: d.fullName, username: d.username, mobile: d.mobile,
+    const farmerData = {
+      name: d.fullName, username: d.username.toLowerCase(), mobile: d.mobile,
       ...loc, mainCrops: d.crops || [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-    });
+    };
+    await setDoc(doc(db, "farmers", cred.user.uid), farmerData);
+    profileProvisioningUid = null;
+    store.user = cred.user; store.profile = userData;
     store.signupData = { crops: [] }; store.signupStep = 1;
+    store.forcePasswordChange = false; store.screen = "farmer";
+    mount();
   } catch (err) {
+    profileProvisioningUid = null;
     setBtnLoading(form, false);
-    showAuthError(form, err.code === "auth/email-already-in-use" ? t("captcha_wrong") : t("network_error"));
+    showAuthError(form, err.code === "auth/email-already-in-use" ? t("login_error") : t("network_error"));
   }
 }
 
@@ -613,6 +636,16 @@ function ensureRecaptcha() {
   window._recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-slot", { size: "invisible" });
   return window._recaptchaVerifier;
 }
+async function sendForgotOtp(mobile) {
+  if (window._recaptchaVerifier) {
+    try { window._recaptchaVerifier.clear(); } catch (_) {}
+    window._recaptchaVerifier = null;
+  }
+  const verifier = ensureRecaptcha();
+  store._confirmResult = await signInWithPhoneNumber(auth, "+91" + mobile, verifier);
+  store.forgotStep = "otp";
+  paintScreen();
+}
 async function forgotSendOtp(e) {
   e.preventDefault();
   const form = e.target;
@@ -621,21 +654,15 @@ async function forgotSendOtp(e) {
   if (!/^[6-9]\d{9}$/.test(mobile)) { setFieldError(form, "mobile", t("field_required")); return; }
   store.forgotData.mobile = mobile;
   setBtnLoading(form, true);
-  try {
-    const verifier = ensureRecaptcha();
-    store._confirmResult = await signInWithPhoneNumber(auth, "+91" + mobile, verifier);
-    store.forgotStep = "otp";
-    paintScreen();
-  } catch (err) {
-    setBtnLoading(form, false);
-    showAuthError(form, t("network_error"));
-  }
+  try { await sendForgotOtp(mobile); }
+  catch (_) { setBtnLoading(form, false); showAuthError(form, t("network_error")); }
 }
 async function forgotVerifyOtp(otp) {
   try {
     const result = await store._confirmResult.confirm(otp);
     const idToken = await result.user.getIdToken();
     store.forgotData.idToken = idToken;
+    await signOut(auth);
     store.forgotStep = "reset";
     paintScreen();
   } catch (err) {
@@ -648,7 +675,7 @@ async function forgotResetPassword(e) {
   clearFormErrors(form);
   const p1 = form.newPassword.value, p2 = form.confirmPassword.value;
   let bad = false;
-  if (p1.length < 6) { setFieldError(form, "newPassword", t("weak_password")); bad = true; }
+  if (p1.length < 8) { setFieldError(form, "newPassword", t("weak_password")); bad = true; }
   if (p1 !== p2) { setFieldError(form, "confirmPassword", t("passwords_no_match")); bad = true; }
   if (bad) return;
   setBtnLoading(form, true);
@@ -877,6 +904,7 @@ function googleCompleteNext(e) {
     if (!/^[6-9]\d{9}$/.test(d.mobile)) { setFieldError(form, "mobile", t("field_required")); return; }
   } else if (store.googleStep === 2) {
     if (!d.stateCode) { setFieldError(form, "state", t("field_required")); return; }
+    if (!d.districtCode) { setFieldError(form, "district", t("field_required")); return; }
   } else if (store.googleStep === 3) {
     d.crops = Array.from(form.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
     if (!d.crops.length) { showAuthError(form, t("field_required")); return; }
@@ -891,17 +919,24 @@ async function submitGoogleProfile(form) {
   const d = store.googleData, g = store.googleProfile;
   setBtnLoading(form, true);
   try {
-    await setDoc(doc(db, "users", g.uid), {
+    profileProvisioningUid = g.uid;
+    const userData = {
       uid: g.uid, role: "farmer", name: g.name, email: g.email, photo: g.photo || null,
-      authProvider: "google", language: store.lang, theme: "light", status: "active", createdAt: serverTimestamp(),
-    });
+      authProvider: "google", language: store.lang, theme: store.theme, status: "active", createdAt: serverTimestamp(),
+    };
+    await setDoc(doc(db, "users", g.uid), userData);
     const loc = locationPayload(d);
     await setDoc(doc(db, "farmers", g.uid), {
       name: g.name, email: g.email, mobile: d.mobile,
       ...loc, mainCrops: d.crops || [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
+    profileProvisioningUid = null;
+    store.user = auth.currentUser; store.profile = userData;
     store.googleProfile = null; store.googleStep = 1; store.googleData = { crops: [] };
+    store.forcePasswordChange = false; store.screen = "farmer";
+    mount();
   } catch (err) {
+    profileProvisioningUid = null;
     setBtnLoading(form, false);
     showAuthError(form, t("network_error"));
   }
@@ -1094,10 +1129,10 @@ function renderNearbyCenters(centers) {
           ${c.distanceKm != null ? `<span>${c.distanceKm} ${t("km_away")}</span>` : ""}
           <span>${t("queue_len")}: ${c.queueLength ?? 0}</span>
           <span>${t("est_wait")}: ${c.estWait != null ? c.estWait + " min" : "—"}</span>
-          <span class="badge ${c.status === "open" ? "green" : "red"}">${c.status === "open" ? t("open_now") : t("closed_now")}</span>
+          <span class="badge ${c.govStatus !== "active" ? "red" : c.status === "open" ? "green" : "red"}">${c.govStatus !== "active" ? t("gov_inactive") : c.status === "open" ? t("open_now") : t("closed_now")}</span>
         </div>
       </div>
-      <div class="actions"><button class="btn gold" data-book="${c.id}" ${c.status !== "open" ? "disabled" : ""}>${t("book_token")}</button></div>
+      <div class="actions"><button class="btn gold" data-book="${c.id}" ${c.govStatus !== "active" || c.status !== "open" ? "disabled" : ""}>${t("book_token")}</button></div>
     </div>`).join("")}</div>`;
 }
 
@@ -1105,7 +1140,7 @@ function subscribeFarmerHome() {
   const f = store.profile;
   getDoc(doc(db, "farmers", store.user.uid)).then((snap) => {
     const farmer = snap.exists() ? snap.data() : {};
-    const q1 = query(collection(db, "centers"), where("district", "==", farmer.district || "__none__"), limit(20));
+    const q1 = query(collection(db, "centers"), where("districtCode", "==", farmer.districtCode), limit(20));
     store._unsub.centers = onSnapshot(q1, (qs) => {
       const centers = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
       paint("farmer-home", `<h2 class="section-title">${t("nearby_centers")}</h2>${renderNearbyCenters(centers)}`);
@@ -1116,18 +1151,17 @@ function subscribeFarmerHome() {
 }
 
 function startBooking(centerId, center) {
+  if (!center || center.govStatus !== "active" || center.status !== "open") return;
   openModal({
     title: t("book_token"), body: `${esc(center.centerName)} — ${t("est_wait")}: ${center.estWait ?? "—"} min`,
     confirmText: t("book_token"), cancelText: t("cancel"),
     onConfirm: async () => {
       try {
-        const ref = await addDoc(collection(db, "tokens"), {
-          farmerId: store.user.uid, farmerName: store.profile.name, centerId,
-          status: "waiting", createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
-        });
-        await addDoc(collection(db, "notifications"), { userId: store.user.uid, text: t("book_token") + " — " + esc(center.centerName), createdAt: serverTimestamp(), read: false });
+        await callFunction("bookToken", { centerId });
         showToast(t("saved")); store.farmerTab = "token"; mount();
-      } catch (e) { showToast(t("network_error")); }
+      } catch (e) {
+        showToast(e.message === "active-token-exists" ? "आपके पास पहले से एक सक्रिय टोकन है।" : t("network_error"));
+      }
     },
   });
 }
@@ -1154,7 +1188,7 @@ function subscribeFarmerToken() {
       openModal({
         title: t("cancel_token_confirm_title"), body: t("cancel_token_confirm_body"),
         confirmText: t("yes_cancel"), cancelText: t("no_keep"), danger: true,
-        onConfirm: async () => { await updateDoc(doc(db, "tokens", tok.id), { status: "cancelled", updatedAt: serverTimestamp() }); showToast(t("saved")); },
+        onConfirm: async () => { try { await callFunction("cancelToken", { tokenId: tok.id }); showToast(t("saved")); } catch (_) { showToast(t("network_error")); } },
       });
     });
   });
@@ -1260,30 +1294,33 @@ function centerMarkServed(tokenId, tokenData) {
     },
   });
 }
-async function centerMarkNoShow(tokenId) { await updateDoc(doc(db, "tokens", tokenId), { status: "noshow", updatedAt: serverTimestamp() }); showToast(t("saved")); }
+async function centerMarkNoShow(tokenId) { try { await callFunction("markNoShow", { tokenId }); showToast(t("saved")); } catch (_) { showToast(t("network_error")); } }
 
 function subscribeCenterCapacity() {
   store._unsub.center = onSnapshot(doc(db, "centers", store.profile.centerId), (snap) => {
     const c = snap.exists() ? snap.data() : {};
     store.profile.centerName = c.centerName || store.profile.centerName;
+    const govActive = c.govStatus === "active";
     paint("center-capacity", `<div class="grid-2">
       <div class="card"><div class="row gap-s"><span>${t("center_status")}</span><span class="spacer"></span>
-        <button class="btn ${c.status === "open" ? "ghost" : ""}" id="toggle-open">${c.status === "open" ? t("deactivate") : t("activate")}</button></div></div>
+        <button class="btn ${c.status === "open" ? "ghost" : ""}" id="toggle-open" ${govActive ? "" : "disabled"}>${govActive ? (c.status === "open" ? t("deactivate") : t("activate")) : t("deactivate")}</button></div>
+        ${!govActive ? `<div class="tiny muted mt-1">${t("gov_inactive")}</div>` : ""}</div>
       <div class="card"><div class="row gap-s"><span>${t("counters")}</span><span class="spacer"></span>
         <button class="icon-btn" id="counters-minus">${ic("minus", 16)}</button><b>${c.counters ?? 1}</b><button class="icon-btn" id="counters-plus">${ic("plus", 16)}</button></div></div>
     </div>`);
-    // Firestore rules allow a center to update only its own centers/{id}
-    // status/counters (never any other field), resolved via this
-    // account's own users/{uid}.centerId — so these direct writes stay
-    // client-side, unlike registration/activation-by-government/
-    // purchases, which all need Admin SDK-verified server logic.
     const openBtn = document.getElementById("toggle-open");
-    if (openBtn) openBtn.addEventListener("click", () => updateDoc(doc(db, "centers", store.profile.centerId), { status: c.status === "open" ? "closed" : "open" }));
+    if (openBtn && govActive) openBtn.addEventListener("click", async () => {
+      openBtn.disabled = true;
+      try { await updateDoc(doc(db, "centers", store.profile.centerId), { status: c.status === "open" ? "closed" : "open" }); }
+      catch (_) { showToast(t("network_error")); }
+      finally { openBtn.disabled = false; }
+    });
     const minus = document.getElementById("counters-minus"), plus = document.getElementById("counters-plus");
-    if (minus) minus.addEventListener("click", () => updateDoc(doc(db, "centers", store.profile.centerId), { counters: Math.max(1, (c.counters || 1) - 1) }));
-    if (plus) plus.addEventListener("click", () => updateDoc(doc(db, "centers", store.profile.centerId), { counters: Math.min(8, (c.counters || 1) + 1) }));
-  });
+    if (minus) minus.addEventListener("click", async () => { try { await updateDoc(doc(db, "centers", store.profile.centerId), { counters: Math.max(1, (c.counters || 1) - 1) }); } catch (_) { showToast(t("network_error")); } });
+    if (plus) plus.addEventListener("click", async () => { try { await updateDoc(doc(db, "centers", store.profile.centerId), { counters: Math.min(8, (c.counters || 1) + 1) }); } catch (_) { showToast(t("network_error")); } });
+  }, () => paint("center-capacity", emptyState("building", t("center_status"), t("network_error"))));
 }
+
 function subscribeCenterNotif() {
   const q1 = query(collection(db, "notifications"), where("userId", "==", store.user.uid), orderBy("createdAt", "desc"), limit(20));
   store._unsub.centerNotif = onSnapshot(q1, (qs) => {
@@ -1326,7 +1363,7 @@ function govRegisterForm() {
 function subscribeGovOverview() {
   store._unsub.govCenters = onSnapshot(collection(db, "centers"), (qs) => {
     const centers = qs.docs.map((d) => d.data());
-    const open = centers.filter((c) => c.status === "open").length;
+    const open = centers.filter((c) => c.govStatus === "active" && c.status === "open").length;
     paint("gov-overview", `<div class="kpi-grid">
       <div class="card kpi"><div class="kpi-label">${t("total_centers")}</div><div class="kpi-value">${centers.length}</div></div>
       <div class="card kpi"><div class="kpi-label">${t("open_centers")}</div><div class="kpi-value">${open}</div></div>
@@ -1339,38 +1376,33 @@ function subscribeGovCenters() {
   store._unsub.govCentersTable = onSnapshot(collection(db, "centers"), (qs) => {
     if (qs.empty) { paint("gov-centers", emptyState("building", t("no_centers_found"), t("no_centers_desc"))); return; }
     paint("gov-centers", `<div class="card table-wrap"><table><tr><th>${t("center_name")}</th><th>${t("district")}</th><th>${t("center_status")}</th><th>${t("counters")}</th><th></th></tr>
-      ${qs.docs.map((d) => { const c = d.data();
-        return `<tr><td><b>${esc(c.centerName)}</b><div class="tiny muted">${esc(c.centerId || d.id)}</div></td><td>${esc(c.district)}</td>
-        <td><span class="badge ${c.status === "open" ? "green" : "red"}">${c.status === "open" ? t("open_now") : t("closed_now")}</span></td>
+      ${qs.docs.map((d) => { const c = d.data(); const active = c.govStatus === "active";
+        return `<tr><td><b>${esc(c.centerName)}</b><div class="tiny muted">${esc(c.centerId || d.id)}</div></td><td>${esc(c.district || "—")}</td>
+        <td><span class="badge ${active ? "green" : "red"}">${active ? t("gov_active") : t("gov_inactive")}</span><div class="tiny muted mt-1">${c.status === "open" ? t("open_now") : t("closed_now")}</div></td>
         <td>${c.counters ?? "—"}</td>
-        <td><button class="btn ghost" data-toggle-center="${d.id}" data-status="${c.status}">${c.status === "open" ? t("deactivate") : t("activate")}</button></td></tr>`;
+        <td><button class="btn ghost" data-toggle-center="${d.id}" data-gov-status="${active ? "active" : "inactive"}">${active ? t("deactivate") : t("activate")}</button></td></tr>`;
       }).join("")}
     </table></div>`);
     document.querySelectorAll("[data-toggle-center]").forEach((b) => b.addEventListener("click", async () => {
-      // Activation/deactivation goes through the govSetCenterStatus
-      // Cloud Function rather than a direct client updateDoc, so every
-      // change is attributed to the government operator who made it
-      // (actorUid/actorRole/updatedAt) — see functions/index.js.
       b.disabled = true;
       try {
         await callFunction("govSetCenterStatus", {
           centerId: b.dataset.toggleCenter,
-          status: b.dataset.status === "open" ? "closed" : "open",
+          govStatus: b.dataset.govStatus === "active" ? "inactive" : "active",
         });
-      } catch (err) {
-        showToast(t("network_error"));
-      } finally {
-        b.disabled = false;
-      }
+      } catch (_) { showToast(t("network_error")); }
+      finally { b.disabled = false; }
     }));
   }, () => paint("gov-centers", emptyState("building", t("no_centers_found"), t("no_centers_desc"))));
 }
+
 function subscribeGovAlerts() {
   store._unsub.govAlerts = onSnapshot(collection(db, "centers"), (qs) => {
     const alerts = [];
     qs.docs.forEach((d) => {
       const c = d.data();
-      if (c.status !== "open") alerts.push(["warn", `${c.centerName} ${store.lang === "hi" ? "अभी बंद दर्ज है।" : "is currently marked closed."}`]);
+      if (c.govStatus !== "active") alerts.push(["danger", `${c.centerName} ${store.lang === "hi" ? "सरकार द्वारा निष्क्रिय है।" : "is inactive by government status."}`]);
+      if (c.govStatus === "active" && c.status !== "open") alerts.push(["warn", `${c.centerName} ${store.lang === "hi" ? "अभी बंद दर्ज है।" : "is currently marked closed."}`]);
       if ((c.counters || 0) < 1) alerts.push(["danger", `${c.centerName} ${store.lang === "hi" ? "में कोई सक्रिय काउंटर नहीं है।" : "has no active counters."}`]);
     });
     paint("gov-alerts", alerts.length ? alerts.map(([k, txt]) => `<div class="alert ${k}">${ic(k === "danger" ? "alert" : "info")}<span>${txt}</span></div>`).join("") : `<div class="card tiny muted">${t("no_alerts")}</div>`);
@@ -1438,6 +1470,7 @@ function wireGovRegister() {
     const mobile = f.mobile.value.trim();
     const d = store.centerRegisterData;
     if (!d.stateCode) { setFieldError(f, "state", t("field_required")); return; }
+    if (!d.districtCode) { setFieldError(f, "district", t("field_required")); return; }
     const crops = Array.from(f.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
     const loc = locationPayload(d);
     setBtnLoading(f, true);
@@ -1523,7 +1556,12 @@ function wireScreen() {
     const resetForm = document.getElementById("reset-form"); if (resetForm) resetForm.addEventListener("submit", forgotResetPassword);
     const exit = document.getElementById("forgot-exit"); if (exit) exit.addEventListener("click", exitForgot);
     const done = document.getElementById("forgot-done"); if (done) done.addEventListener("click", exitForgot);
-    const resend = document.getElementById("otp-resend"); if (resend) resend.addEventListener("click", () => showToast(t("otp_sent")));
+    const resend = document.getElementById("otp-resend");
+    if (resend) resend.addEventListener("click", async () => {
+      const mobile = store.forgotData.mobile;
+      if (!mobile) return;
+      try { await sendForgotOtp(mobile); } catch (_) { showToast(t("network_error")); }
+    });
     wireOtpBoxes();
   } else if (store.screen === "forcePassword") {
     const form = document.getElementById("force-pw-form"); if (form) form.addEventListener("submit", handleForcePasswordChange);

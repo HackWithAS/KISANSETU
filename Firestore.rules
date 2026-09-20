@@ -1,254 +1,214 @@
-Now perform a SECURITY AND PRIVACY HARDENING pass on the entire Kisan Setu project.
-
-Do not redesign the UI.
-Do not remove existing features.
-Do not expose private data unnecessarily.
-
-The frontend can never be fully hidden, so the goal is:
-NO sensitive data should be accessible merely by inspecting the frontend code or manually calling Firestore/API requests.
-
-1. FIRESTORE SECURITY RULES — MANDATORY
-
-Create/fix firestore.rules with strict authorization.
-
-Farmer:
-- can access only their own farmer profile
-- can access only their own tokens
-- can access only their own purchase history
-- can access only their own notifications
-- cannot read another farmer's document
-- cannot change their role
-- cannot change uid
-
-Center:
-- can access only its own center
-- use users/{uid}.centerId to resolve the real center ID
-- Auth UID is NOT the center ID
-- can only manage tokens belonging to its center
-- can only create valid purchase records for its center
-- cannot access another center
-- cannot change its own role
-- cannot change centerId
-
-Government:
-- only authorized Government accounts can access government-level data
-- only Government can register/activate/deactivate centers
-- normal users cannot impersonate Government
-
-2. NEVER TRUST CLIENT ROLE
-
-Do not trust:
-- localStorage role
-- JavaScript variables
-- URL parameters
-- hidden form fields
-- request body role
-
-Use authenticated Firebase identity plus server-enforced authorization.
-
-Prefer server-managed custom claims for role where practical.
-
-The client may display a role, but authorization must happen in Security Rules/server-side.
-
-3. PRIVATE DATA MUST NOT BE PREFETCHED
-
-Never download the complete:
-- farmers collection
-- purchases collection
-- tokens collection
-- notifications collection
-- government analytics dataset
-
-to the browser unless the authenticated user is explicitly authorized for that dataset.
-
-Use filtered queries and minimum required fields.
-
-Do not fetch all data and filter it in JavaScript.
-
-4. SENSITIVE OPERATIONS
-
-Move privileged operations behind Cloud Functions/server-side code where appropriate:
-
-- create Government account
-- register center
-- activate/deactivate center
-- role changes
-- password reset
-- sensitive purchase/payment operations
-- bulk analytics/report generation
-- any cross-user data lookup
-
-The server must verify Firebase ID token before doing the operation.
-
-5. PURCHASE SECURITY
-
-Current Center code writes purchases directly from the browser.
-
-Review this carefully.
-
-Make sure a Center cannot manually alter:
-- farmerId
-- centerId
-- amount
-- payment status
-- another center's transaction
-- another farmer's purchase
-
-Where necessary, move purchase creation/update to a Cloud Function.
-
-6. CLOUD FUNCTION SECURITY
-
-Every protected function must:
-- verify Firebase ID token
-- verify caller role server-side
-- validate request body
-- reject unknown/malformed fields
-- reject unauthorized centerId/farmerId values
-- never trust client-supplied role
-
-Do not expose Admin SDK credentials to frontend code.
-
-7. FIREBASE APP CHECK
-
-Add/prepare Firebase App Check for the web application.
-
-Keep the current development setup usable, but document the production configuration.
-
-App Check must not be treated as a replacement for Firestore Security Rules.
-Use both.
-
-8. RATE LIMITING / ABUSE PROTECTION
-
-Add protection for:
-- login attempts
-- OTP requests
-- password reset attempts
-- Cloud Functions
-- token booking
-- repeated center actions
-
-Do not create an infinite retry loop.
-
-9. DATA MINIMIZATION
-
-Only store the minimum necessary farmer information.
-
-Never store:
-- passwords
-- password hashes
-- Firebase Admin credentials
-- service account JSON
-- private API keys
-
-Do not put secrets in:
-- app.js
-- index.html
-- firebase-config.js
-- public JSON files
-
-10. FIREBASE CLIENT CONFIG
-
-Keep firebase-config.js limited to the public Firebase Web configuration.
-
-Do not add any Admin SDK/service-account credentials to it.
-
-11. NETWORK/API PRIVACY
-
-Review every Firestore query and every fetch request.
-
-Ask:
-"Could an unauthorized user modify the request and retrieve another user's data?"
-
-Fix every such case.
-
-Do not rely on obscured collection names, hidden routes, or frontend checks.
-
-12. USER ENUMERATION
-
-For login/forgot-password flows, avoid revealing unnecessary information such as:
-- whether a specific username exists
-- whether a specific phone belongs to an account
-
-unless the product explicitly requires that information.
-
-13. AUDIT FIELDS
-
-For sensitive records store appropriate:
-- createdAt
-- updatedAt
-- actorUid
-- actorRole
-- centerId where applicable
-
-Do not allow normal users to freely overwrite audit fields.
-
-14. GOVERNMENT DATA
-
-Government analytics should return only the fields actually needed by the dashboard.
-
-Do not expose:
-- unnecessary farmer personal information
-- passwords
-- private authentication identifiers
-- unrelated farmer records
-
-15. LOCATION/CROP DATA
-
-crops.json and public location master data may be readable if required by the signup UI.
-
-Do not put farmer personal data into these public files.
-
-16. FRONTEND SECURITY
-
-Search the whole project for:
-- service account
-- private key
-- password hardcoding
-- admin credentials
-- API secrets
-- unrestricted Firestore reads
-- unrestricted Firestore writes
-- client-controlled role
-- client-controlled centerId
-- client-controlled farmerId
-- sensitive data embedded in JavaScript
-
-Fix every occurrence.
-
-17. FIRESTORE RULES TEST CASES
-
-Verify logically:
-
-Farmer A reading Farmer B → DENY
-Farmer A writing Farmer B → DENY
-Center A reading Center B → DENY
-Center A modifying Center B → DENY
-Center A creating purchase for Center B → DENY
-Center A creating purchase for unauthorized Farmer → DENY
-Farmer changing role to gov → DENY
-Center changing role to gov → DENY
-Normal user creating center → DENY
-Government creating center → ALLOW
-Government activating/deactivating center → ALLOW
-
-18. IMPORTANT
-
-Security Rules are the final authorization boundary.
-
-Do NOT say:
-"Frontend hides the data, so it is secure."
-
-A user must still be blocked if they manually modify requests through browser DevTools or another client.
-
-19. FINAL SECURITY REPORT
-
-After making the changes, give me:
-- what was secured
-- what data is private
-- what data is intentionally public
-- what requires Cloud Functions
-- what requires Firebase Console configuration
-- what requires deployment
-- any remaining security limitations
-
-Do not claim something is secure unless the actual rules/server implementation enforces it.
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function farmerPath(uid) {
+      return /databases/$(database)/documents/farmers/$(uid);
+    }
+
+    function callerExists() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
+    function caller() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function isActiveFarmer() {
+      return callerExists()
+        && caller().role == 'farmer'
+        && caller().status == 'active';
+    }
+
+    function isActiveCenter() {
+      return callerExists()
+        && caller().role == 'center'
+        && caller().status == 'active'
+        && caller().centerId is string;
+    }
+
+    function isActiveGov() {
+      return callerExists()
+        && caller().role == 'gov'
+        && caller().status == 'active';
+    }
+
+    function callerCenterId() {
+      return caller().centerId;
+    }
+
+    function onlyChanged(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    match /users/{uid} {
+      // Allows the account to discover its own profile even when the doc is
+      // not present yet (for example a first-time Google/phone-only session).
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list: if false;
+
+      // Only a farmer can self-provision a profile from the public signup UI.
+      // Center and Government accounts are created by Admin SDK/server flows.
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'farmer'
+        && request.resource.data.status == 'active'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.language in ['hi', 'en']
+        && request.resource.data.theme in ['light', 'dark']
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 160
+        && (
+          (
+            request.resource.data.authProvider == 'password'
+            && request.resource.data.keys().hasAll([
+              'uid','role','name','username','authProvider','language','theme','status','createdAt'
+            ])
+            && request.resource.data.keys().hasOnly([
+              'uid','role','name','username','authProvider','language','theme','status','createdAt'
+            ])
+            && request.resource.data.username is string
+            && request.resource.data.username.matches('^[a-z0-9._-]{3,30}$')
+          ) ||
+          (
+            request.resource.data.authProvider == 'google'
+            && request.resource.data.keys().hasAll([
+              'uid','role','name','email','authProvider','language','theme','status','createdAt'
+            ])
+            && request.resource.data.keys().hasOnly([
+              'uid','role','name','email','photo','authProvider','language','theme','status','createdAt'
+            ])
+            && request.resource.data.email is string
+            && request.resource.data.email.size() > 0
+            && request.resource.data.email.size() <= 320
+            && (request.resource.data.photo is string || request.resource.data.photo == null)
+          )
+        );
+
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && (
+          (
+            onlyChanged(['theme','language'])
+            && request.resource.data.theme in ['light','dark']
+            && request.resource.data.language in ['hi','en']
+          ) ||
+          (
+            onlyChanged(['mustChangePassword'])
+            && resource.data.mustChangePassword == true
+            && request.resource.data.mustChangePassword == false
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    match /farmers/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list: if false;
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && isActiveFarmer()
+        && request.resource.data.keys().hasAll([
+          'name','mobile','country','state','stateCode','district','districtCode',
+          'block','blockCode','village','villageCode','latitude','longitude',
+          'mainCrops','createdAt','updatedAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'name','username','email','mobile','country','state','stateCode',
+          'district','districtCode','block','blockCode','village','villageCode',
+          'latitude','longitude','mainCrops','createdAt','updatedAt'
+        ])
+        && request.resource.data.name == caller().name
+        && request.resource.data.mobile is string
+        && request.resource.data.mobile.matches('^[6-9][0-9]{9}$')
+        && request.resource.data.country == 'India'
+        && request.resource.data.stateCode is string
+        && request.resource.data.stateCode.size() > 0
+        && request.resource.data.districtCode is string
+        && request.resource.data.districtCode.size() > 0
+        && request.resource.data.mainCrops is list
+        && request.resource.data.mainCrops.size() > 0
+        && request.resource.data.mainCrops.size() <= 50
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update, delete: if false;
+    }
+
+    match /centers/{centerId} {
+      allow get: if isActiveGov()
+        || (isActiveFarmer()
+          && resource.data.districtCode == get(farmerPath(request.auth.uid)).data.districtCode)
+        || (isActiveCenter() && callerCenterId() == centerId);
+
+      allow list: if isActiveGov()
+        || (isActiveFarmer()
+          && resource.data.districtCode == get(farmerPath(request.auth.uid)).data.districtCode
+          && request.query.limit <= 20);
+
+      allow create: if false;
+
+      // Center operators control only their operational status and counter
+      // count, and only while Government has the center activated.
+      allow update: if isActiveCenter()
+        && callerCenterId() == centerId
+        && resource.data.govStatus == 'active'
+        && onlyChanged(['status','counters'])
+        && request.resource.data.status in ['open','closed']
+        && request.resource.data.counters is int
+        && request.resource.data.counters >= 1
+        && request.resource.data.counters <= 8;
+
+      allow delete: if false;
+    }
+
+    match /tokens/{tokenId} {
+      allow get: if signedIn() && (
+        (isActiveFarmer() && resource.data.farmerId == request.auth.uid) ||
+        (isActiveCenter() && resource.data.centerId == callerCenterId())
+      );
+
+      allow list: if signedIn() && (
+        (isActiveFarmer() && resource.data.farmerId == request.auth.uid) ||
+        (isActiveCenter() && resource.data.centerId == callerCenterId())
+      );
+
+      // Token creation and all status transitions are server-controlled.
+      allow create, delete, update: if false;
+    }
+
+    match /purchases/{purchaseId} {
+      allow get: if isActiveFarmer() && resource.data.farmerId == request.auth.uid;
+      allow list: if isActiveFarmer() && resource.data.farmerId == request.auth.uid;
+      allow create, update, delete: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow get: if signedIn() && resource.data.userId == request.auth.uid;
+      allow list: if signedIn() && resource.data.userId == request.auth.uid;
+      // Notifications are generated by trusted server operations only.
+      allow create, update, delete: if false;
+    }
+
+    match /rateLimits/{key} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
