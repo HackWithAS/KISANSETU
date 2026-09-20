@@ -1,4 +1,4 @@
-import { auth, db, getAppCheckHeaders } from "./firebase-config.js";
+import { auth, db, getAppCheckHeaders, getSecondaryAuth } from "./firebase-config.js";
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged,
   signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider,
@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   doc, getDoc, setDoc, updateDoc, collection, query, where, orderBy,
-  limit, onSnapshot, serverTimestamp, Timestamp
+  limit, onSnapshot, serverTimestamp, Timestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import * as locationAdapter from "./data/locationAdapter.js";
 import * as cropsAdapter from "./data/cropsAdapter.js";
@@ -77,7 +77,7 @@ const I18N = {
     login_error: "गलत उपयोगकर्ता नाम या पासवर्ड", network_error: "इंटरनेट कनेक्शन उपलब्ध नहीं है।",
     wrong_password: "गलत पासवर्ड", wrong_username: "उपयोगकर्ता नाम गलत है", too_many_attempts: "बहुत अधिक प्रयास, कुछ समय बाद पुनः प्रयास करें",
     session_expired: "कृपया दोबारा लॉगिन करें।", otp_invalid: "OTP गलत है या समाप्त हो गया है।",
-    field_required: "यह फ़ील्ड आवश्यक है", captcha_wrong: "सत्यापन कोड गलत है",
+    field_required: "यह फ़ील्ड आवश्यक है", captcha_wrong: "सत्यापन कोड गलत है", code_taken: "यह कोड पहले से उपयोग में है, कोई और चुनें",
     passwords_no_match: "पासवर्ड मेल नहीं खाते", weak_password: "पासवर्ड कम से कम 8 अक्षर का होना चाहिए",
     step: "चरण", next: "आगे", back: "पीछे", submit: "जमा करें", save: "सहेजें", cancel: "रद्द करें", confirm: "पुष्टि करें",
     full_name: "पूरा नाम", state: "राज्य", district: "ज़िला", block: "ब्लॉक", village: "गाँव",
@@ -88,7 +88,7 @@ const I18N = {
     continue_with_google: "Google से जारी रखें", or_divider: "या",
     complete_profile: "प्रोफ़ाइल पूरी करें", complete_profile_hint: "आपका Google खाता जुड़ गया है — जारी रखने के लिए कुछ और जानकारी दें",
     otp_sent: "OTP भेजा गया", enter_otp: "6 अंकों का OTP दर्ज करें", resend_otp: "OTP फिर भेजें",
-    new_password: "नया पासवर्ड", password_changed: "पासवर्ड सफलतापूर्वक बदल दिया गया",
+    new_password: "नया पासवर्ड", password_changed: "पासवर्ड सफलतापूर्वक बदल दिया गया", initial_password: "शुरुआती पासवर्ड",
     forgot_identify: "उपयोगकर्ता नाम या मोबाइल नंबर दर्ज करें",
     nav_home: "केंद्र", nav_token: "टोकन", nav_history: "इतिहास", nav_notif: "सूचनाएँ", nav_help: "सहायता",
     nav_dashboard: "डैशबोर्ड", nav_queue: "कतार", nav_purchases: "खरीद", nav_capacity: "क्षमता", nav_settings: "सेटिंग",
@@ -141,7 +141,7 @@ const I18N = {
     login_error: "Incorrect username or password", network_error: "No internet connection.",
     wrong_password: "Incorrect password", wrong_username: "Incorrect username", too_many_attempts: "Too many attempts, try again later",
     session_expired: "Please sign in again.", otp_invalid: "OTP is incorrect or has expired.",
-    field_required: "This field is required", captcha_wrong: "Verification code is incorrect",
+    field_required: "This field is required", captcha_wrong: "Verification code is incorrect", code_taken: "This code is already in use, choose another",
     passwords_no_match: "Passwords do not match", weak_password: "Password must be at least 8 characters",
     step: "Step", next: "Next", back: "Back", submit: "Submit", save: "Save", cancel: "Cancel", confirm: "Confirm",
     full_name: "Full name", state: "State", district: "District", block: "Block", village: "Village",
@@ -152,7 +152,7 @@ const I18N = {
     continue_with_google: "Continue with Google", or_divider: "or",
     complete_profile: "Complete your profile", complete_profile_hint: "Your Google account is connected — a few more details to continue",
     otp_sent: "OTP sent", enter_otp: "Enter the 6-digit OTP", resend_otp: "Resend OTP",
-    new_password: "New password", password_changed: "Password changed successfully",
+    new_password: "New password", password_changed: "Password changed successfully", initial_password: "Initial password",
     forgot_identify: "Enter your username or mobile number",
     nav_home: "Centers", nav_token: "Token", nav_history: "History", nav_notif: "Notifications", nav_help: "Help",
     nav_dashboard: "Dashboard", nav_queue: "Queue", nav_purchases: "Purchases", nav_capacity: "Capacity", nav_settings: "Settings",
@@ -1096,6 +1096,7 @@ function farmerBody() {
   if (tab === "history") return `<h2 class="section-title">${t("purchase_history")}</h2><div id="farmer-history">${loadingBlock()}</div>`;
   if (tab === "notif") return `<h2 class="section-title">${t("notifications")}</h2><div id="farmer-notif">${loadingBlock()}</div>`;
   if (tab === "help") return farmerHelp();
+  if (tab === "settings") return farmerSettings();
   return "";
 }
 function loadingBlock() { return `<div class="card muted tiny">${t("loading")}</div>`; }
@@ -1237,16 +1238,67 @@ function centerSettings() {
     <form id="center-pw-form" novalidate>
       <div class="field"><label for="cpw-old">${t("password")}</label><input id="cpw-old" name="oldPassword" type="password" autocomplete="current-password" required></div>
       <div class="field"><label for="cpw-new">${t("new_password")}</label><input id="cpw-new" name="newPassword" type="password" autocomplete="new-password" required></div>
+      <div class="field"><label for="cpw-confirm">${t("confirm_password")}</label><input id="cpw-confirm" name="confirmPassword" type="password" autocomplete="new-password" required></div>
       <button class="btn" type="submit">${t("save")}</button>
     </form>
   </div>`;
 }
 
+function farmerSettings() {
+  return `<h2 class="section-title">${t("change_password")}</h2>
+  <div class="card" style="max-width:420px">
+    <form id="farmer-pw-form" novalidate>
+      <div class="field"><label for="fpw-old">${t("password")}</label><input id="fpw-old" name="oldPassword" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label for="fpw-new">${t("new_password")}</label><input id="fpw-new" name="newPassword" type="password" autocomplete="new-password" required></div>
+      <div class="field"><label for="fpw-confirm">${t("confirm_password")}</label><input id="fpw-confirm" name="confirmPassword" type="password" autocomplete="new-password" required></div>
+      <button class="btn" type="submit">${t("save")}</button>
+    </form>
+  </div>`;
+}
+
+/* Shared by farmerSettings() and centerSettings() — same Current/New/
+   Confirm fields, same Firebase reauthenticate-then-updatePassword flow,
+   same error handling. Keeps the account signed in throughout. */
+function wirePasswordChangeForm(formId) {
+  const form = document.getElementById(formId);
+  if (!form) return;
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearFormErrors(form);
+    const oldPw = form.oldPassword.value, p1 = form.newPassword.value, p2 = form.confirmPassword.value;
+    let bad = false;
+    if (!oldPw) { setFieldError(form, "oldPassword", t("field_required")); bad = true; }
+    if (p1.length < 8) { setFieldError(form, "newPassword", t("weak_password")); bad = true; }
+    if (p1 !== p2) { setFieldError(form, "confirmPassword", t("passwords_no_match")); bad = true; }
+    if (bad) return;
+    setBtnLoading(form, true);
+    try {
+      const cred = EmailAuthProvider.credential(auth.currentUser.email, oldPw);
+      await reauthenticateWithCredential(auth.currentUser, cred);
+      await updatePassword(auth.currentUser, p1);
+      setBtnLoading(form, false);
+      form.reset();
+      showToast(t("password_changed"));
+    } catch (err) {
+      setBtnLoading(form, false);
+      if (err.code === "auth/wrong-password" || err.code === "auth/invalid-credential") {
+        setFieldError(form, "oldPassword", t("wrong_password"));
+      } else if (err.code === "auth/weak-password") {
+        setFieldError(form, "newPassword", t("weak_password"));
+      } else if (err.code === "auth/requires-recent-login") {
+        showAuthError(form, t("session_expired"));
+      } else {
+        showAuthError(form, t("network_error"));
+      }
+    }
+  });
+}
+
 function subscribeCenterQueue() {
-  // store.profile.centerId — set on the center's users/{uid} doc by the
-  // registerCenter/createCenterAccount Cloud Function — is the center's
-  // real business ID. The center's Auth uid (store.user.uid) is a
-  // different value and must never be used as a centerId anywhere.
+  // store.profile.centerId — set on the center's users/{uid} doc by
+  // Government's client-side registration flow (see wireGovRegister) — is
+  // the center's real business ID. The center's Auth uid (store.user.uid)
+  // is a different value and must never be used as a centerId anywhere.
   const q1 = query(collection(db, "tokens"), where("centerId", "==", store.profile.centerId), where("status", "==", "waiting"), orderBy("createdAt", "asc"), limit(50));
   store._unsub.queue = onSnapshot(q1, (qs) => {
     if (qs.empty) { paint("center-queue", emptyState("users", t("no_queue"), t("no_queue_desc"))); return; }
@@ -1355,6 +1407,9 @@ function govRegisterForm() {
       <div class="field"><label>${t("crops_list")}</label>${cropsStepHtml(d.crops || [])}</div>
       <div class="field"><label for="gr-mobile">${t("mobile")}</label><input id="gr-mobile" name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" value="${esc(d.mobile || "")}" required></div>
       <div class="field"><label for="gr-adminname">${t("admin_name")}</label><input id="gr-adminname" name="adminName" value="${esc(d.adminName || "")}" required></div>
+      <div class="field"><label for="gr-adminid">${t("admin_id")}</label><input id="gr-adminid" name="adminId" autocomplete="off" value="${esc(d.adminId || "")}" required></div>
+      <div class="field"><label for="gr-initpw">${t("initial_password")}</label><input id="gr-initpw" name="initialPassword" type="password" autocomplete="new-password" value="${esc(d.initialPassword || "")}" required></div>
+      <div class="field"><label for="gr-confirmpw">${t("confirm_password")}</label><input id="gr-confirmpw" name="confirmPassword" type="password" autocomplete="new-password" value="${esc(d.confirmPassword || "")}" required></div>
       <button class="btn" type="submit">${t("create_center")}</button>
     </form>
   </div>`;
@@ -1418,6 +1473,7 @@ function attachRoleListeners() {
     if (store.farmerTab === "history") subscribeFarmerHistory();
     if (store.farmerTab === "notif") subscribeFarmerNotif();
     if (store.farmerTab === "help") wireFaq();
+    if (store.farmerTab === "settings") wireFarmerSettings();
   } else if (role === "center") {
     if (store.centerTab === "queue") subscribeCenterQueue();
     if (store.centerTab === "capacity") subscribeCenterCapacity();
@@ -1434,17 +1490,10 @@ function wireFaq() {
   document.querySelectorAll(".faq-item").forEach((item) => item.querySelector(".faq-q").addEventListener("click", () => item.classList.toggle("open")));
 }
 function wireCenterSettings() {
-  const form = document.getElementById("center-pw-form");
-  if (!form) return;
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const cred = EmailAuthProvider.credential(auth.currentUser.email, form.oldPassword.value);
-    try {
-      await reauthenticateWithCredential(auth.currentUser, cred);
-      await updatePassword(auth.currentUser, form.newPassword.value);
-      showToast(t("password_changed"));
-    } catch (err) { showToast(t("login_error")); }
-  });
+  wirePasswordChangeForm("center-pw-form");
+}
+function wireFarmerSettings() {
+  wirePasswordChangeForm("farmer-pw-form");
 }
 function wireGovRegister() {
   const form = document.getElementById("gov-register-form");
@@ -1458,7 +1507,8 @@ function wireGovRegister() {
     // Preserve the rest of the form's entered values across this targeted repaint.
     d.centerName = form.centerName.value; d.centerCode = form.centerCode.value;
     d.address = form.address.value; d.capacity = form.capacity.value; d.counters = form.counters.value;
-    d.mobile = form.mobile.value; d.adminName = form.adminName.value;
+    d.mobile = form.mobile.value; d.adminName = form.adminName.value; d.adminId = form.adminId.value;
+    d.initialPassword = form.initialPassword.value; d.confirmPassword = form.confirmPassword.value;
     d.crops = Array.from(form.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
     mount();
   });
@@ -1468,39 +1518,103 @@ function wireGovRegister() {
     clearFormErrors(f);
     const centerCode = f.centerCode.value.trim().toUpperCase();
     const mobile = f.mobile.value.trim();
+    const adminId = f.adminId.value.trim().toLowerCase();
+    const adminName = f.adminName.value.trim();
+    const initialPassword = f.initialPassword.value, confirmPw = f.confirmPassword.value;
     const d = store.centerRegisterData;
-    if (!d.stateCode) { setFieldError(f, "state", t("field_required")); return; }
-    if (!d.districtCode) { setFieldError(f, "district", t("field_required")); return; }
+    let bad = false;
+    if (!/^[A-Z0-9]{2,12}$/.test(centerCode)) { setFieldError(f, "centerCode", t("field_required")); bad = true; }
+    if (!/^[a-z0-9._-]{3,20}$/.test(adminId)) { setFieldError(f, "adminId", t("field_required")); bad = true; }
+    if (!d.stateCode) { setFieldError(f, "state", t("field_required")); bad = true; }
+    if (!d.districtCode) { setFieldError(f, "district", t("field_required")); bad = true; }
+    if (initialPassword.length < 8) { setFieldError(f, "initialPassword", t("weak_password")); bad = true; }
+    if (initialPassword !== confirmPw) { setFieldError(f, "confirmPassword", t("passwords_no_match")); bad = true; }
+    if (bad) return;
     const crops = Array.from(f.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
     const loc = locationPayload(d);
+    // centerId is the business identifier the center will type at login
+    // (see centerEmail()/handleCenterLogin) — it is chosen by Government
+    // here as the Center Code, and is a completely separate value from
+    // the Firebase Auth uid the new account gets below. Never conflate
+    // the two: the Auth uid is only ever used as the users/{uid} doc id.
+    const centerId = centerCode;
+    const email = centerEmail(centerId, adminId);
     setBtnLoading(f, true);
+
     try {
-      // registerCenter (a Cloud Function running with the Admin SDK)
-      // creates the center document, its login account, and its
-      // users/{uid} doc as one atomic server-side operation, and
-      // generates the centerId and initial password itself — this
-      // browser tab never writes centers/ directly (see
-      // firestore.rules: centers/create is always false) and never
-      // invents the temporary password.
-      const result = await callFunction("registerCenter", {
-        centerName: f.centerName.value.trim(), centerCode, mobile,
-        address: f.address.value.trim() || null,
-        capacity: Number(f.capacity.value) || 0, counters: Number(f.counters.value) || 1,
-        crops, adminName: f.adminName.value.trim(),
-        stateCode: d.stateCode, stateName: loc.state,
-        districtCode: d.districtCode, districtName: loc.district,
-        blockCode: d.blockCode, blockName: loc.block,
-        villageCode: d.villageCode, villageName: loc.village,
+      const existing = await getDoc(doc(db, "centers", centerId));
+      if (existing.exists()) {
+        setBtnLoading(f, false);
+        setFieldError(f, "centerCode", t("code_taken"));
+        return;
+      }
+    } catch (_) {
+      setBtnLoading(f, false);
+      showToast(t("network_error"));
+      return;
+    }
+
+    // Firebase Auth account creation is a client SDK call gated only by
+    // whether Email/Password sign-in is enabled for this project — it is
+    // NOT mediated by firestore.rules at all, so on the Spark plan
+    // (no Cloud Functions/Admin SDK) this step cannot be restricted to
+    // Government specifically. What IS strictly enforced below is that
+    // the resulting account is functionally useless without a matching
+    // users/{uid} doc, and firestore.rules only lets an active Government
+    // account create that doc with role:'center' — so creating a stray
+    // Auth account alone grants no access to any farmer/center/gov data.
+    const secondaryAuth = getSecondaryAuth();
+    let createdUid = null;
+    try {
+      const cred = await createUserWithEmailAndPassword(secondaryAuth, email, initialPassword);
+      createdUid = cred.user.uid;
+    } catch (err) {
+      setBtnLoading(f, false);
+      if (err.code === "auth/email-already-in-use") {
+        setFieldError(f, "adminId", t("code_taken"));
+      } else if (err.code === "auth/weak-password") {
+        setFieldError(f, "initialPassword", t("weak_password"));
+      } else {
+        showToast(authErrorMessage(err));
+      }
+      return;
+    } finally {
+      // Drop the secondary session immediately; Government's own session
+      // on the primary `auth` was never touched by any of this.
+      try { await signOut(secondaryAuth); } catch (_) {}
+    }
+
+    try {
+      const batch = writeBatch(db);
+      batch.set(doc(db, "users", createdUid), {
+        uid: createdUid, role: "center", name: adminName, centerId, adminId,
+        authProvider: "password", language: store.lang, theme: "light",
+        status: "active", mustChangePassword: true, createdAt: serverTimestamp(),
       });
-      const credentialsNote = `${t("center_id")}: ${result.centerId} · ${t("admin_id")}: ${result.adminId} · ${t("password")}: ${result.initialPassword}`;
+      const { latitude, longitude, ...centerLoc } = loc;
+      batch.set(doc(db, "centers", centerId), {
+        centerId, centerName: f.centerName.value.trim(), centerCode, registeredMobile: mobile,
+        ...centerLoc, address: f.address.value.trim() || null,
+        capacity: Math.max(0, parseInt(f.capacity.value, 10) || 0),
+        counters: Math.max(1, parseInt(f.counters.value, 10) || 1),
+        acceptedCrops: crops, govStatus: "active", status: "closed", createdAt: serverTimestamp(),
+      });
+      await batch.commit();
+      const credentialsNote = `${t("center_id")}: ${centerId} · ${t("admin_id")}: ${adminId}`;
       openModal({ title: t("center_created"), body: credentialsNote, confirmText: t("confirm") });
       store.centerRegisterData = { crops: [] };
       paintScreen();
     } catch (err) {
       setBtnLoading(f, false);
+      // The Auth account above was already created and cannot be rolled
+      // back from the browser (deleting another user's Auth account needs
+      // the Admin SDK). This is the one gap this client-only flow can't
+      // close: a retry must use a different Center Code/Admin ID, since
+      // this exact login now exists but has no matching Firestore profile
+      // and so cannot sign in to anything.
       showToast(store.lang === "hi"
-        ? "केंद्र नहीं बन सका — सुनिश्चित करें कि functions/index.js डिप्लॉय है।"
-        : "Could not create the center — make sure functions/index.js is deployed.");
+        ? "खाता तो बन गया लेकिन केंद्र रिकॉर्ड सहेजा नहीं जा सका। एक अलग केंद्र कोड/एडमिन आईडी के साथ पुनः प्रयास करें।"
+        : "The login was created but the center record could not be saved. Retry with a different Center Code/Admin ID.");
     }
   });
 }

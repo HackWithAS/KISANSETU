@@ -94,7 +94,34 @@ service cloud.firestore {
             && request.resource.data.email.size() <= 320
             && (request.resource.data.photo is string || request.resource.data.photo == null)
           )
-        );
+        )
+      // A Center account's users/{uid} doc is instead created by an
+      // active Government caller, on behalf of a different uid (the new
+      // Center's own Firebase Auth uid — see the "Spark-plan center
+      // registration" note on /centers/{centerId} below for why this is
+      // a plain client write rather than an Admin SDK operation, and
+      // exactly what that does and doesn't secure).
+      || (
+        isActiveGov()
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'center'
+        && request.resource.data.status == 'active'
+        && request.resource.data.mustChangePassword == true
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.language in ['hi', 'en']
+        && request.resource.data.theme in ['light', 'dark']
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 160
+        && request.resource.data.authProvider == 'password'
+        && request.resource.data.centerId is string
+        && request.resource.data.centerId.matches('^[A-Z0-9]{2,12}$')
+        && request.resource.data.adminId is string
+        && request.resource.data.adminId.matches('^[a-z0-9._-]{3,20}$')
+        && request.resource.data.keys().hasOnly([
+          'uid','role','name','centerId','adminId','authProvider','language','theme','status','mustChangePassword','createdAt'
+        ])
+      );
 
       allow update: if signedIn()
         && request.auth.uid == uid
@@ -159,7 +186,53 @@ service cloud.firestore {
           && resource.data.districtCode == get(farmerPath(request.auth.uid)).data.districtCode
           && request.query.limit <= 20);
 
-      allow create: if false;
+      // Spark-plan center registration: Government's browser tab writes
+      // this document directly (no Cloud Function/Admin SDK on this
+      // plan). The one thing rules genuinely cannot police is whether
+      // the *Firebase Auth account* for this center was created by a
+      // real Government user — Auth account creation is a client SDK
+      // call gated only by the project's "Email/Password sign-in"
+      // toggle, not by these rules. What these rules DO strictly
+      // guarantee, regardless of who or what created any Auth account:
+      // only an active Government caller may ever create a document
+      // here, its centerId is pinned to this exact path segment,
+      // required fields must be well-formed, and it always starts
+      // govStatus:'active', status:'closed' — no one can create a
+      // pre-activated or pre-opened center, and a stray Auth account
+      // with no matching Government-authored doc here can never read or
+      // write anything center-scoped (see isActiveCenter()).
+      allow create: if isActiveGov()
+        && request.resource.data.centerId == centerId
+        && request.resource.data.centerName is string
+        && request.resource.data.centerName.size() > 0
+        && request.resource.data.centerName.size() <= 160
+        && request.resource.data.centerCode is string
+        && request.resource.data.centerCode.matches('^[A-Z0-9]{2,12}$')
+        && request.resource.data.registeredMobile is string
+        && request.resource.data.registeredMobile.matches('^[6-9][0-9]{9}$')
+        && request.resource.data.country == 'India'
+        && request.resource.data.stateCode is string
+        && request.resource.data.stateCode.size() > 0
+        && request.resource.data.districtCode is string
+        && request.resource.data.districtCode.size() > 0
+        && request.resource.data.capacity is int
+        && request.resource.data.capacity >= 0
+        && request.resource.data.counters is int
+        && request.resource.data.counters >= 1
+        && request.resource.data.counters <= 8
+        && request.resource.data.acceptedCrops is list
+        && request.resource.data.govStatus == 'active'
+        && request.resource.data.status == 'closed'
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.keys().hasAll([
+          'centerId','centerName','centerCode','registeredMobile','country','state','stateCode',
+          'district','districtCode','capacity','counters','acceptedCrops','govStatus','status','createdAt'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'centerId','centerName','centerCode','registeredMobile','address','country','state','stateCode',
+          'district','districtCode','block','blockCode','village','villageCode',
+          'capacity','counters','acceptedCrops','govStatus','status','createdAt'
+        ]);
 
       // Center operators control only their operational status and counter
       // count, and only while Government has the center activated.

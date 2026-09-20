@@ -51,6 +51,25 @@ export async function getAppCheckHeaders() {
   }
 }
 
+/* Secondary Firebase App instance, used ONLY when Government creates a new
+   Center's login account (Spark-plan client flow, no Cloud Function).
+   createUserWithEmailAndPassword() always signs the *created* user into
+   whichever Auth instance you pass it — calling it on the primary `auth`
+   would silently replace Government's own session. Calling it on this
+   separate named app instance creates the account without touching the
+   primary session at all; Government stays signed in on `auth` throughout.
+   Firestore itself is one project-wide service, so `db` (bound to the
+   primary app) is still used for every document write below — those
+   writes run under Government's own primary auth context and are
+   evaluated by firestore.rules exactly like any other client write. */
+let secondaryApp = null;
+export function getSecondaryAuth() {
+  if (!secondaryApp) {
+    secondaryApp = initializeApp(firebaseConfig, "ks-secondary");
+  }
+  return getAuth(secondaryApp);
+}
+
 // This is the public Firebase Web SDK configuration. It contains no Admin SDK
 // or service-account credential. Authorization is enforced by Auth, rules,
 // and server-side Cloud Functions.
