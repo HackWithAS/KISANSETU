@@ -11,9 +11,11 @@ import {
 import * as locationAdapter from "./data/locationAdapter.js";
 import * as cropsAdapter from "./data/cropsAdapter.js";
 
-/* A server endpoint is required for the two operations that need the Admin
-   SDK (creating a center's login and resetting a password after phone
-   verification). See functions/index.js for the reference implementation. */
+/* A server endpoint is required for every operation that needs the Admin
+   SDK or must not trust anything the browser says about itself: creating
+   a center's login, registering a center, activating/deactivating a
+   center, recording a purchase, and resetting a password after phone
+   verification. See functions/index.js and SECURITY.md. */
 const FUNCTIONS_BASE_URL = "";
 
 /* Both data adapters fetch their JSON once, in parallel, right away.
@@ -306,6 +308,15 @@ async function callFunction(name, payload) {
   return res.json();
 }
 
+// Set right before each of the three sign-in calls below, and read once
+// here. This is what makes "Government credentials only work on the
+// Government login context" actually true: a real, valid account that
+// signs in through the wrong tab is signed straight back out again,
+// never shown that role's dashboard, because the role check happens
+// here against Firestore — not against which tab the browser happened
+// to submit.
+let pendingLoginRole = null;
+
 onAuthStateChanged(auth, async (user) => {
   detachAllListeners();
   if (!user) { store.user = null; store.profile = null; store.screen = "login"; mount(); return; }
@@ -313,16 +324,33 @@ onAuthStateChanged(auth, async (user) => {
     const snap = await getDoc(doc(db, "users", user.uid));
     if (!snap.exists()) {
       const isGoogle = user.providerData.some((p) => p.providerId === "google.com");
-      if (isGoogle) {
+      if (isGoogle && (pendingLoginRole === null || pendingLoginRole === "farmer")) {
         store.user = user;
         store.googleProfile = { uid: user.uid, name: user.displayName || "", email: user.email || "", photo: user.photoURL || "" };
         store.screen = "googleComplete";
+        pendingLoginRole = null;
         mount();
         return;
       }
+      pendingLoginRole = null;
       store.user = user; store.screen = "login"; mount(); return;
     }
-    store.user = user; store.profile = snap.data();
+    const profile = snap.data();
+    // The account is real and the password was right, but it was
+    // authenticated from a different login context (e.g. a Government
+    // account's credentials typed into the Farmer tab). Reject it the
+    // same way a wrong password would be rejected — no hint that the
+    // account itself exists under another role.
+    if (pendingLoginRole && profile.role !== pendingLoginRole) {
+      pendingLoginRole = null;
+      await signOut(auth);
+      store.screen = "login";
+      store.crossRoleLoginError = true;
+      mount();
+      return;
+    }
+    pendingLoginRole = null;
+    store.user = user; store.profile = profile;
     store.lang = store.profile.language || store.lang;
     store.theme = store.profile.theme || store.theme;
     applyTheme();
@@ -330,6 +358,7 @@ onAuthStateChanged(auth, async (user) => {
     store.screen = store.forcePasswordChange ? "forcePassword" : store.profile.role;
     mount();
   } catch (e) {
+    pendingLoginRole = null;
     store.screen = "login"; mount();
   }
 });
@@ -351,8 +380,10 @@ async function handleFarmerLogin(e) {
   if (bad) return;
   setBtnLoading(form, true);
   try {
+    pendingLoginRole = "farmer";
     await signInWithEmailAndPassword(auth, farmerEmail(username), password);
   } catch (err) {
+    pendingLoginRole = null;
     setBtnLoading(form, false);
     showAuthError(form, authErrorMessage(err));
     refreshCaptchaWidget(form);
@@ -380,8 +411,10 @@ async function handleCenterLogin(e) {
   if (bad) return;
   setBtnLoading(form, true);
   try {
+    pendingLoginRole = "center";
     await signInWithEmailAndPassword(auth, centerEmail(centerId, adminId), password);
   } catch (err) {
+    pendingLoginRole = null;
     setBtnLoading(form, false);
     showAuthError(form, authErrorMessage(err));
   }
@@ -399,8 +432,10 @@ async function handleGovLogin(e) {
   if (bad) return;
   setBtnLoading(form, true);
   try {
+    pendingLoginRole = "gov";
     await signInWithEmailAndPassword(auth, govEmail(officialId), password);
   } catch (err) {
+    pendingLoginRole = null;
     setBtnLoading(form, false);
     showAuthError(form, authErrorMessage(err));
     refreshCaptchaWidget(form);
@@ -410,10 +445,12 @@ async function handleGovLogin(e) {
 const googleProvider = new GoogleAuthProvider();
 async function handleGoogleLogin() {
   try {
+    pendingLoginRole = "farmer";
     await signInWithPopup(auth, googleProvider);
     // onAuthStateChanged takes over from here: existing profile -> dashboard,
     // no profile yet -> "googleComplete" screen.
   } catch (err) {
+    pendingLoginRole = null;
     if (err.code !== "auth/popup-closed-by-user") showToast(t("network_error"));
   }
 }
@@ -1172,7 +1209,11 @@ function centerSettings() {
 }
 
 function subscribeCenterQueue() {
-  const q1 = query(collection(db, "tokens"), where("centerId", "==", store.user.uid), where("status", "==", "waiting"), orderBy("createdAt", "asc"), limit(50));
+  // store.profile.centerId — set on the center's users/{uid} doc by the
+  // registerCenter/createCenterAccount Cloud Function — is the center's
+  // real business ID. The center's Auth uid (store.user.uid) is a
+  // different value and must never be used as a centerId anywhere.
+  const q1 = query(collection(db, "tokens"), where("centerId", "==", store.profile.centerId), where("status", "==", "waiting"), orderBy("createdAt", "asc"), limit(50));
   store._unsub.queue = onSnapshot(q1, (qs) => {
     if (qs.empty) { paint("center-queue", emptyState("users", t("no_queue"), t("no_queue_desc"))); return; }
     paint("center-queue", `<div class="card">${qs.docs.map((d, i) => {
@@ -1203,18 +1244,16 @@ function centerMarkServed(tokenId, tokenData) {
     }),
     onConfirm: async (data) => {
       try {
-        const amount = data.weight * data.rate;
-        await addDoc(collection(db, "purchases"), {
-          farmerId: tokenData.farmerId, farmerName: tokenData.farmerName || null,
-          centerId: store.user.uid, centerName: store.profile.centerName || null,
-          tokenId, crop: data.crop, quantity: `${data.weight} ${store.lang === "hi" ? "क्विंटल" : "quintal"}`,
-          rate: data.rate, grade: data.grade || null, amount, paymentStatus: "pending",
-          purchaseDate: serverTimestamp(),
-        });
-        await updateDoc(doc(db, "tokens", tokenId), { status: "done", updatedAt: serverTimestamp() });
-        await addDoc(collection(db, "notifications"), {
-          userId: tokenData.farmerId, read: false, createdAt: serverTimestamp(),
-          text: `${data.crop} — ${fmtINR(amount)} ${store.lang === "hi" ? "दर्ज हुआ, भुगतान लंबित" : "recorded, payment pending"}`,
+        // Recording a purchase now goes through the createPurchase Cloud
+        // Function rather than a direct Firestore write: the server, not
+        // this browser tab, is what decides the real farmerId, centerId
+        // and amount (it re-derives them from the token being served and
+        // from this center's own server-verified identity), so a
+        // tampered request here can change only the crop/weight/rate/
+        // grade being recorded for a token that is genuinely this
+        // center's — never whose purchase it is or at which center.
+        await callFunction("createPurchase", {
+          tokenId, crop: data.crop, weight: data.weight, rate: data.rate, grade: data.grade || null,
         });
         showToast(t("saved"));
       } catch (e) { showToast(t("network_error")); }
@@ -1224,19 +1263,25 @@ function centerMarkServed(tokenId, tokenData) {
 async function centerMarkNoShow(tokenId) { await updateDoc(doc(db, "tokens", tokenId), { status: "noshow", updatedAt: serverTimestamp() }); showToast(t("saved")); }
 
 function subscribeCenterCapacity() {
-  store._unsub.center = onSnapshot(doc(db, "centers", store.user.uid), (snap) => {
+  store._unsub.center = onSnapshot(doc(db, "centers", store.profile.centerId), (snap) => {
     const c = snap.exists() ? snap.data() : {};
+    store.profile.centerName = c.centerName || store.profile.centerName;
     paint("center-capacity", `<div class="grid-2">
       <div class="card"><div class="row gap-s"><span>${t("center_status")}</span><span class="spacer"></span>
         <button class="btn ${c.status === "open" ? "ghost" : ""}" id="toggle-open">${c.status === "open" ? t("deactivate") : t("activate")}</button></div></div>
       <div class="card"><div class="row gap-s"><span>${t("counters")}</span><span class="spacer"></span>
         <button class="icon-btn" id="counters-minus">${ic("minus", 16)}</button><b>${c.counters ?? 1}</b><button class="icon-btn" id="counters-plus">${ic("plus", 16)}</button></div></div>
     </div>`);
+    // Firestore rules allow a center to update only its own centers/{id}
+    // status/counters (never any other field), resolved via this
+    // account's own users/{uid}.centerId — so these direct writes stay
+    // client-side, unlike registration/activation-by-government/
+    // purchases, which all need Admin SDK-verified server logic.
     const openBtn = document.getElementById("toggle-open");
-    if (openBtn) openBtn.addEventListener("click", () => updateDoc(doc(db, "centers", store.user.uid), { status: c.status === "open" ? "closed" : "open" }));
+    if (openBtn) openBtn.addEventListener("click", () => updateDoc(doc(db, "centers", store.profile.centerId), { status: c.status === "open" ? "closed" : "open" }));
     const minus = document.getElementById("counters-minus"), plus = document.getElementById("counters-plus");
-    if (minus) minus.addEventListener("click", () => updateDoc(doc(db, "centers", store.user.uid), { counters: Math.max(1, (c.counters || 1) - 1) }));
-    if (plus) plus.addEventListener("click", () => updateDoc(doc(db, "centers", store.user.uid), { counters: Math.min(8, (c.counters || 1) + 1) }));
+    if (minus) minus.addEventListener("click", () => updateDoc(doc(db, "centers", store.profile.centerId), { counters: Math.max(1, (c.counters || 1) - 1) }));
+    if (plus) plus.addEventListener("click", () => updateDoc(doc(db, "centers", store.profile.centerId), { counters: Math.min(8, (c.counters || 1) + 1) }));
   });
 }
 function subscribeCenterNotif() {
@@ -1301,8 +1346,23 @@ function subscribeGovCenters() {
         <td><button class="btn ghost" data-toggle-center="${d.id}" data-status="${c.status}">${c.status === "open" ? t("deactivate") : t("activate")}</button></td></tr>`;
       }).join("")}
     </table></div>`);
-    document.querySelectorAll("[data-toggle-center]").forEach((b) => b.addEventListener("click", () =>
-      updateDoc(doc(db, "centers", b.dataset.toggleCenter), { status: b.dataset.status === "open" ? "closed" : "open" })));
+    document.querySelectorAll("[data-toggle-center]").forEach((b) => b.addEventListener("click", async () => {
+      // Activation/deactivation goes through the govSetCenterStatus
+      // Cloud Function rather than a direct client updateDoc, so every
+      // change is attributed to the government operator who made it
+      // (actorUid/actorRole/updatedAt) — see functions/index.js.
+      b.disabled = true;
+      try {
+        await callFunction("govSetCenterStatus", {
+          centerId: b.dataset.toggleCenter,
+          status: b.dataset.status === "open" ? "closed" : "open",
+        });
+      } catch (err) {
+        showToast(t("network_error"));
+      } finally {
+        b.disabled = false;
+      }
+    }));
   }, () => paint("gov-centers", emptyState("building", t("no_centers_found"), t("no_centers_desc"))));
 }
 function subscribeGovAlerts() {
@@ -1379,29 +1439,36 @@ function wireGovRegister() {
     const d = store.centerRegisterData;
     if (!d.stateCode) { setFieldError(f, "state", t("field_required")); return; }
     const crops = Array.from(f.querySelectorAll('input[name="crops"]:checked')).map((i) => i.value);
-    const centerId = "C" + Date.now().toString(36).toUpperCase();
     const loc = locationPayload(d);
-    const centerDoc = {
-      centerId, centerName: f.centerName.value.trim(), centerCode, registeredMobile: mobile,
-      ...loc, address: f.address.value.trim() || null,
-      capacity: Number(f.capacity.value) || 0, counters: Number(f.counters.value) || 1,
-      acceptedCrops: crops, status: "closed", createdAt: serverTimestamp(),
-    };
+    setBtnLoading(f, true);
     try {
-      await setDoc(doc(db, "centers", centerId), centerDoc);
-      const initialPassword = (centerCode.padEnd(4, "0")).slice(0, 4) + mobile.slice(-4);
-      let credentialsNote = `${t("center_id")}: ${centerId} · ${t("admin_id")}: ${centerCode} · ${t("password")}: ${initialPassword}`;
-      try {
-        await callFunction("createCenterAccount", { centerId, adminId: centerCode, initialPassword, adminName: f.adminName.value.trim() });
-      } catch (err) {
-        credentialsNote += store.lang === "hi"
-          ? " — लॉगिन खाता बनाने के लिए functions/index.js को Firebase पर डिप्लॉय करें।"
-          : " — deploy functions/index.js to Firebase to activate this login.";
-      }
+      // registerCenter (a Cloud Function running with the Admin SDK)
+      // creates the center document, its login account, and its
+      // users/{uid} doc as one atomic server-side operation, and
+      // generates the centerId and initial password itself — this
+      // browser tab never writes centers/ directly (see
+      // firestore.rules: centers/create is always false) and never
+      // invents the temporary password.
+      const result = await callFunction("registerCenter", {
+        centerName: f.centerName.value.trim(), centerCode, mobile,
+        address: f.address.value.trim() || null,
+        capacity: Number(f.capacity.value) || 0, counters: Number(f.counters.value) || 1,
+        crops, adminName: f.adminName.value.trim(),
+        stateCode: d.stateCode, stateName: loc.state,
+        districtCode: d.districtCode, districtName: loc.district,
+        blockCode: d.blockCode, blockName: loc.block,
+        villageCode: d.villageCode, villageName: loc.village,
+      });
+      const credentialsNote = `${t("center_id")}: ${result.centerId} · ${t("admin_id")}: ${result.adminId} · ${t("password")}: ${result.initialPassword}`;
       openModal({ title: t("center_created"), body: credentialsNote, confirmText: t("confirm") });
       store.centerRegisterData = { crops: [] };
       paintScreen();
-    } catch (err) { showToast(t("network_error")); }
+    } catch (err) {
+      setBtnLoading(f, false);
+      showToast(store.lang === "hi"
+        ? "केंद्र नहीं बन सका — सुनिश्चित करें कि functions/index.js डिप्लॉय है।"
+        : "Could not create the center — make sure functions/index.js is deployed.");
+    }
   });
 }
 
@@ -1430,6 +1497,7 @@ function wireScreen() {
   if (store.screen === "login") {
     newCaptcha();
     wireLoginForm();
+    if (store.crossRoleLoginError) { store.crossRoleLoginError = false; showToast(t("login_error")); }
     document.querySelectorAll("[data-role-tab]").forEach((b) => b.addEventListener("click", () => { store.authTab = b.dataset.roleTab; paintScreen(); }));
     const about = document.getElementById("go-about"), help = document.getElementById("go-help");
     if (about) about.addEventListener("click", () => openModal({ title: t("about_title"), body: t("about_body"), confirmText: t("confirm") }));
