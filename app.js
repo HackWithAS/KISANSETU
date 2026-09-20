@@ -6,7 +6,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   doc, getDoc, setDoc, updateDoc, collection, query, where, orderBy,
-  limit, onSnapshot, serverTimestamp, Timestamp, writeBatch
+  limit, onSnapshot, serverTimestamp, Timestamp, writeBatch, getCountFromServer
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import * as locationAdapter from "./data/locationAdapter.js";
 import * as cropsAdapter from "./data/cropsAdapter.js";
@@ -167,6 +167,8 @@ const I18N = {
     demo_activate: "सक्रिय करें (डेमो)", demo_deactivate: "निष्क्रिय करें (डेमो)", demo_open: "खोलें (डेमो)", demo_close: "बंद करें (डेमो)",
     demo_register_preview_title: "नया केंद्र पंजीकरण (डेमो पूर्वावलोकन)",
     demo_register_preview_body: "असली डैशबोर्ड में, यह पूरा फ़ॉर्म खोलता है — केंद्र का नाम, पता, क्षमता, स्वीकृत फ़सलें, एडमिन विवरण — और तुरंत एक लॉगिन बना देता है। डेमो मोड में यह क्रिया अक्षम है ताकि कोई नकली डेटा असली सिस्टम में न जाए।",
+    add_local_purchase: "स्थानीय खरीद जोड़ें", lp_farmer: "किसान का नाम", lp_select_crop: "फ़सल चुनें",
+    gov_capacity_label: "सरकारी क्षमता", quintal_per_day: "क्विंटल/दिन",
   },
   en: {
     brand: "Kisan Setu", tagline: "Connecting farmers and procurement centers, simply.",
@@ -267,6 +269,8 @@ const I18N = {
     demo_activate: "Activate (Demo)", demo_deactivate: "Deactivate (Demo)", demo_open: "Open (Demo)", demo_close: "Close (Demo)",
     demo_register_preview_title: "Register new center (Demo preview)",
     demo_register_preview_body: "In the real dashboard, this opens the full form — center name, address, capacity, accepted crops, admin details — and creates a working login instantly. It's disabled here in Demo Mode so no fake data ever touches the real system.",
+    add_local_purchase: "Add Local Purchase", lp_farmer: "Farmer name", lp_select_crop: "Select crop",
+    gov_capacity_label: "Government capacity", quintal_per_day: "quintal/day",
   },
 };
 function t(key) { return (I18N[store.lang] && I18N[store.lang][key]) || I18N.hi[key] || key; }
@@ -1580,7 +1584,9 @@ function subscribeFarmerNotif() {
 /* ============================== center views ============================== */
 function centerBody() {
   const tab = store.centerTab;
-  if (tab === "queue") return `<h2 class="section-title">${t("queue_title")}</h2><div id="queue-sync"></div><div id="center-queue">${loadingBlock()}</div>`;
+  if (tab === "queue") return `<div class="row gap-s"><h2 class="section-title" style="margin:0">${t("queue_title")}</h2><span class="spacer"></span>
+      <button class="btn gold" id="add-local-purchase">${ic("plus", 16)}${t("add_local_purchase")}</button></div>
+    <div id="queue-sync"></div><div id="center-queue">${loadingBlock()}</div>`;
   if (tab === "capacity") return `<h2 class="section-title">${t("center_status")}</h2><div id="center-capacity">${loadingBlock()}</div>`;
   if (tab === "notif") return `<h2 class="section-title">${t("notifications")}</h2><div id="center-notif">${loadingBlock()}</div>`;
   if (tab === "settings") return centerSettings();
@@ -1649,6 +1655,8 @@ function wirePasswordChangeForm(formId) {
 }
 
 function subscribeCenterQueue() {
+  const addBtn = document.getElementById("add-local-purchase");
+  if (addBtn) addBtn.addEventListener("click", openAddLocalPurchase);
   // store.profile.centerId — set on the center's users/{uid} doc by
   // Government's client-side registration flow (see wireGovRegister) — is
   // the center's real business ID. The center's Auth uid (store.user.uid)
@@ -1953,12 +1961,96 @@ async function centerMarkNoShow(tokenId) {
   }
 }
 
+/* ---- Center: Add Local Purchase — a manual purchase entry not tied to a
+   token/queue booking (e.g. a farmer who walks in without booking).
+   Writes to its own `localPurchases` collection (kept separate from the
+   token-linked `purchases` collection so none of the existing queue/token
+   rules or flows are touched). The center has no farmer-directory read
+   access (by design — see firestore.rules), so the farmer's name here is
+   plain text the center operator types in, not a linked farmer record. */
+async function openAddLocalPurchase() {
+  let center;
+  try {
+    const snap = await fsRead(doc(db, "centers", store.profile.centerId));
+    center = snap.exists() ? snap.data() : null;
+  } catch (_) { showToast(t("network_error")); return; }
+  if (!center) { showToast(t("err_unknown")); return; }
+  const accepted = Array.isArray(center.acceptedCrops) ? center.acceptedCrops.filter((c) => typeof c === "string" && c) : [];
+  const cropOptions = accepted.map((code) => `<option value="${esc(code)}">${esc(cropName(code))}</option>`).join("");
+  openModal({
+    title: t("add_local_purchase"),
+    body: `
+      <div class="field"><label for="lp-farmer">${t("lp_farmer")}</label><input id="lp-farmer" name="farmerName" required></div>
+      <div class="field"><label for="lp-crop">${t("crop")}</label>
+        <select id="lp-crop" name="crop" required ${accepted.length ? "" : "disabled"}>
+          <option value="">${t("lp_select_crop")}</option>${cropOptions}
+        </select>
+        ${accepted.length ? "" : `<p class="tiny muted">${t("bk_err_no_accepted")}</p>`}
+      </div>
+      <div class="grid-2">
+        <div class="field"><label for="lp-qty">${t("quantity")} (${t("quintal_short")})</label><input id="lp-qty" name="quantity" inputmode="decimal" required></div>
+        <div class="field"><label for="lp-rate">${t("rate_per_quintal")}</label><input id="lp-rate" name="rate" inputmode="decimal" required></div>
+      </div>
+      <div class="row gap-s"><span>${t("total")}</span><span class="spacer"></span><b id="lp-amount">${fmtINR(0)}</b></div>
+      <div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`,
+    confirmText: t("save"), cancelText: t("cancel"),
+    onOpen: (root) => {
+      const box = root.querySelector(".modal") || root;
+      const recompute = () => {
+        const q = parsePositive2dp(box.querySelector("#lp-qty").value, MAX_QTY_QUINTAL);
+        const r = parsePositive2dp(box.querySelector("#lp-rate").value, MAX_RATE_PER_QUINTAL);
+        box.querySelector("#lp-amount").textContent = fmtINR(roundMoney((q || 0) * (r || 0)));
+      };
+      box.addEventListener("input", recompute);
+    },
+    getData: (root) => ({
+      farmerName: root.querySelector("#lp-farmer").value.trim(),
+      crop: root.querySelector("#lp-crop").value,
+      quantity: parsePositive2dp(root.querySelector("#lp-qty").value, MAX_QTY_QUINTAL),
+      rate: parsePositive2dp(root.querySelector("#lp-rate").value, MAX_RATE_PER_QUINTAL),
+    }),
+    validate: (d) => {
+      if (!d.farmerName) return t("field_required");
+      if (!accepted.length) return t("bk_err_no_accepted");
+      if (!d.crop || !accepted.includes(d.crop)) return t("bk_err_crop_gone");
+      if (d.quantity == null || d.rate == null) return t("err_invalid_input");
+      return null;
+    },
+    onConfirm: async (d) => {
+      try {
+        if (navigator.onLine === false) throw ksError("unavailable", "browser reports offline");
+        const amount = roundMoney(d.quantity * d.rate);
+        const ref = doc(collection(db, "localPurchases"));
+        await withTimeout(setDoc(ref, {
+          farmerName: d.farmerName,
+          centerId: store.profile.centerId,
+          centerName: center.centerName,
+          crop: d.crop,
+          quantity: d.quantity,
+          rate: d.rate,
+          amount,
+          paymentStatus: "pending",
+          purchaseDate: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        }), OP_TIMEOUT_MS);
+        showToast(t("saved"));
+      } catch (e) {
+        console.error("[openAddLocalPurchase] error.code:", e && e.code, "| message:", e && e.message);
+        showToast(t(simpleErrorKey(e)));
+      }
+    },
+  });
+}
+
 function subscribeCenterCapacity() {
   store._unsub.center = onSnapshot(doc(db, "centers", store.profile.centerId), (snap) => {
     const c = snap.exists() ? snap.data() : {};
     store.profile.centerName = c.centerName || store.profile.centerName;
     const govActive = c.govStatus === "active";
     paint("center-capacity", `<div class="grid-2">
+      <div class="card"><div class="row gap-s"><span>${t("gov_capacity_label")}</span><span class="spacer"></span>
+        <b>${c.capacity != null ? `${c.capacity} ${t("quintal_per_day")}` : "—"}</b></div>
+        <div class="tiny muted mt-1">${store.lang === "hi" ? "यह केवल शासन द्वारा तय की जाती है।" : "Set by Government only — the center cannot change this."}</div></div>
       <div class="card"><div class="row gap-s"><span>${t("center_status")}</span><span class="spacer"></span>
         <button class="btn ${c.status === "open" ? "ghost" : ""}" id="toggle-open" ${govActive ? "" : "disabled"}>${govActive ? (c.status === "open" ? t("deactivate") : t("activate")) : t("deactivate")}</button></div>
         ${!govActive ? `<div class="tiny muted mt-1">${t("gov_inactive")}</div>` : ""}</div>
@@ -2030,7 +2122,37 @@ function subscribeGovOverview() {
       <div class="card kpi"><div class="kpi-label">${t("total_farmers")}</div><div class="kpi-value" id="kpi-farmers">—</div></div>
       <div class="card kpi"><div class="kpi-label">${t("total_purchases_today")}</div><div class="kpi-value" id="kpi-purchases">—</div></div>
     </div>`);
+    loadGovFarmerCount();
+    loadGovTodayPurchaseCount();
   });
+}
+/* Real counts via Firestore's count() aggregation (one aggregation read,
+   no Cloud Function needed — works on the Spark plan). Firestore rules
+   gate this: only an active Government caller may list/get `farmers` or
+   `purchases`, so this never opens either collection up more broadly. */
+async function loadGovFarmerCount() {
+  const el = document.getElementById("kpi-farmers");
+  if (!el) return;
+  try {
+    const snap = await getCountFromServer(collection(db, "farmers"));
+    el.textContent = String(snap.data().count);
+  } catch (e) {
+    console.error("[loadGovFarmerCount] error.code:", e && e.code, "| message:", e && e.message);
+    el.textContent = "—";
+  }
+}
+async function loadGovTodayPurchaseCount() {
+  const el = document.getElementById("kpi-purchases");
+  if (!el) return;
+  try {
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+    const q1 = query(collection(db, "purchases"), where("purchaseDate", ">=", Timestamp.fromDate(startOfDay)));
+    const snap = await getCountFromServer(q1);
+    el.textContent = String(snap.data().count);
+  } catch (e) {
+    console.error("[loadGovTodayPurchaseCount] error.code:", e && e.code, "| message:", e && e.message);
+    el.textContent = "—";
+  }
 }
 function subscribeGovCenters() {
   store._unsub.govCentersTable = onSnapshot(collection(db, "centers"), (qs) => {
@@ -2045,15 +2167,30 @@ function subscribeGovCenters() {
     </table></div>`);
     document.querySelectorAll("[data-toggle-center]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
-      try {
-        await callFunction("govSetCenterStatus", {
-          centerId: b.dataset.toggleCenter,
-          govStatus: b.dataset.govStatus === "active" ? "inactive" : "active",
-        });
-      } catch (_) { showToast(t("network_error")); }
+      try { await govToggleCenterStatus(b.dataset.toggleCenter, b.dataset.govStatus); }
       finally { b.disabled = false; }
     }));
   }, () => paint("gov-centers", emptyState("building", t("no_centers_found"), t("no_centers_desc"))));
+}
+
+/* Spark-compatible direct Firestore write (no Cloud Function — that call,
+   govSetCenterStatus, is what produced a blanket "No internet connection"
+   whenever the function wasn't reachable, regardless of the real cause).
+   firestore.rules enforces: only an active Government caller may change
+   govStatus/status here, deactivating always forces status to 'closed'
+   (an inactive center can't be reopened by its own operator), and no
+   other field on the center document can change through this action. */
+async function govToggleCenterStatus(centerId, currentGovStatus) {
+  const turningInactive = currentGovStatus === "active";
+  try {
+    if (navigator.onLine === false) throw ksError("unavailable", "browser reports offline");
+    const patch = turningInactive ? { govStatus: "inactive", status: "closed" } : { govStatus: "active" };
+    await withTimeout(updateDoc(doc(db, "centers", centerId), patch), OP_TIMEOUT_MS);
+    showToast(t("saved"));
+  } catch (e) {
+    console.error("[govToggleCenterStatus] error.code:", e && e.code, "| message:", e && e.message);
+    showToast(t(simpleErrorKey(e)));
+  }
 }
 
 function subscribeGovAlerts() {

@@ -158,8 +158,12 @@ service cloud.firestore {
     }
 
     match /farmers/{uid} {
-      allow get: if signedIn() && request.auth.uid == uid;
-      allow list: if false;
+      // Government needs to see and list farmer records for the Government
+      // Farmers section and dashboard count — but a Center never gets list
+      // access here (see /purchases and /localPurchases for how a center
+      // instead sees just the farmer contact tied to its own queue/purchase).
+      allow get: if signedIn() && (request.auth.uid == uid || isActiveGov());
+      allow list: if isActiveGov();
 
       allow create: if signedIn()
         && request.auth.uid == uid
@@ -273,6 +277,24 @@ service cloud.firestore {
         && request.resource.data.get('queueLength', 0) <= 50
         && request.resource.data.get('queueUids', []) is list
         && request.resource.data.get('queueUids', []).size() <= 50;
+
+      // Government activate/deactivate — Spark-plan direct client write
+      // (replaces the old Cloud Function call). Only govStatus and status
+      // may change through this path, so a Government caller can never
+      // sneak in a change to name/contact/crops/capacity/etc. here.
+      // Deactivating always forces status to 'closed' in the SAME write —
+      // there is no way to deactivate a center while leaving it 'open'.
+      // Re-activating leaves `status` exactly as it was (still 'closed'
+      // until the center's own operator reopens it — see the center's
+      // own update rule above, which already requires govStatus=='active'
+      // before it will ever accept a status change).
+      allow update: if isActiveGov()
+        && onlyChanged(['govStatus', 'status'])
+        && request.resource.data.govStatus in ['active', 'inactive']
+        && (
+          (request.resource.data.govStatus == 'inactive' && request.resource.data.status == 'closed')
+          || (request.resource.data.govStatus == 'active' && request.resource.data.status == resource.data.status)
+        );
 
       allow delete: if false;
     }
@@ -515,11 +537,56 @@ service cloud.firestore {
       }
 
       allow get: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
-        || (isActiveCenter() && resource.data.centerId == callerCenterId());
+        || (isActiveCenter() && resource.data.centerId == callerCenterId())
+        || isActiveGov();
       allow list: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
-        || (isActiveCenter() && resource.data.centerId == callerCenterId());
+        || (isActiveCenter() && resource.data.centerId == callerCenterId())
+        || isActiveGov();
 
       allow create: if signedIn() && validPurchase(purchaseId);
+      allow update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Local purchases (Spark plan): a manual purchase a Center records
+    // that is NOT tied to a token/queue booking (e.g. a walk-in farmer).
+    // Kept in its own collection, deliberately separate from /purchases,
+    // so none of the token-linked purchase rules above have to change.
+    // The center has no farmer-directory read access, so farmerName here
+    // is free text the operator enters, not a linked farmer record.
+    // Spark limitation: rules can validate amount == quantity * rate and
+    // that the crop/center are real, but — same as /purchases — there is
+    // no Admin SDK transaction backing this, so it is not a claim of a
+    // server-side atomic financial guarantee.
+    // ------------------------------------------------------------------
+    match /localPurchases/{id} {
+      function validLocalPurchase() {
+        let d = request.resource.data;
+        let me = get(userPath(request.auth.uid)).data;
+        let ce = get(centerPath(me.centerId)).data;
+        return me.role == 'center'
+          && me.status == 'active'
+          && me.centerId is string
+          && ce.govStatus == 'active'
+          && d.keys().hasAll(['farmerName','centerId','centerName','crop','quantity','rate','amount','paymentStatus','purchaseDate','createdAt'])
+          && d.keys().hasOnly(['farmerId','farmerName','centerId','centerName','crop','quantity','rate','amount','paymentStatus','purchaseDate','createdAt'])
+          && d.centerId == me.centerId
+          && d.centerName == ce.centerName
+          && d.farmerName is string && d.farmerName.size() > 0 && d.farmerName.size() <= 160
+          && d.crop is string && d.crop.size() > 0 && d.crop.size() <= 60
+          && d.crop in ce.acceptedCrops
+          && d.quantity is number && d.quantity > 0 && d.quantity <= 5000
+          && d.rate is number && d.rate > 0 && d.rate <= 100000
+          && d.amount is number
+          && math.abs(d.amount - (d.quantity * d.rate)) <= 0.01
+          && d.paymentStatus == 'pending'
+          && d.purchaseDate == request.time
+          && d.createdAt == request.time;
+      }
+
+      allow get: if (isActiveCenter() && resource.data.centerId == callerCenterId()) || isActiveGov();
+      allow list: if (isActiveCenter() && resource.data.centerId == callerCenterId()) || isActiveGov();
+      allow create: if signedIn() && validLocalPurchase();
       allow update, delete: if false;
     }
 
