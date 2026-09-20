@@ -457,8 +457,8 @@ function nameFromList(list, code) {
 }
 function locationSelectHtml(name, label, options, value, disabled) {
   const opts = options.map((o) => `<option value="${esc(o.code)}" ${o.code === value ? "selected" : ""}>${esc(store.lang === "hi" ? o.nameHi : o.name)}</option>`).join("");
-  return `<div class="field"><label>${label}</label>
-    <select name="${name}" ${disabled ? "disabled" : "required"} data-loc-level="${name}">
+  return `<div class="field"><label for="loc-${name}">${label}</label>
+    <select id="loc-${name}" name="${name}" ${disabled ? "disabled" : "required"} data-loc-level="${name}">
       <option value="">${t("select_" + name)}</option>${opts}
     </select></div>`;
 }
@@ -528,9 +528,9 @@ function signupNext(e) {
   } else if (store.signupStep === 4) {
     const captchaVal = form.captcha.value, terms = form.terms.checked;
     let bad = false;
-    if (!checkCaptcha(captchaVal)) { setFieldError(form, "captcha", t("captcha_wrong")); newCaptcha(); bad = true; }
+    if (!checkCaptcha(captchaVal)) { setFieldError(form, "captcha", t("captcha_wrong")); refreshCaptchaWidget(form); bad = true; }
     if (!terms) { showAuthError(form, t("field_required")); bad = true; }
-    if (bad) return paintScreen();
+    if (bad) return;
     return submitSignup(form);
   }
   store.signupStep++;
@@ -659,10 +659,10 @@ function langToggleHtml() {
 
 function captchaHtml() {
   return `<div class="field">
-    <label>${t("captcha")}</label>
+    <label for="captcha-input">${t("captcha")}</label>
     <div class="captcha-box">
       <span class="captcha-challenge" aria-hidden="true">${store.captcha.a} + ${store.captcha.b} = ?</span>
-      <input name="captcha" inputmode="numeric" autocomplete="off" aria-label="${t("captcha")}" style="width:64px" required>
+      <input id="captcha-input" name="captcha" inputmode="numeric" autocomplete="off" aria-label="${t("captcha")}" style="width:64px" required>
       <button type="button" class="icon-btn captcha-refresh" id="captcha-refresh" aria-label="${t("captcha_refresh")}">${ic("history", 16)}</button>
     </div>
   </div>`;
@@ -795,11 +795,11 @@ function screenSignup() {
     <p class="step-label">${t("step")} ${store.signupStep}/4 — ${steps[store.signupStep - 1]}</p>`;
   let fields = "";
   if (store.signupStep === 1) {
-    fields = `<div class="field"><label>${t("full_name")}</label><input name="fullName" value="${esc(d.fullName || "")}" required></div>
-      <div class="field"><label>${t("mobile")}</label><input name="mobile" inputmode="numeric" maxlength="10" value="${esc(d.mobile || "")}" required></div>
-      <div class="field"><label>${t("username")}</label><input name="username" value="${esc(d.username || "")}" required></div>
-      <div class="field"><label>${t("password")}</label><input name="password" type="password" required></div>
-      <div class="field"><label>${t("confirm_password")}</label><input name="confirmPassword" type="password" required></div>`;
+    fields = `<div class="field"><label for="su-fullname">${t("full_name")}</label><input id="su-fullname" name="fullName" autocomplete="name" value="${esc(d.fullName || "")}" required></div>
+      <div class="field"><label for="su-mobile">${t("mobile")}</label><input id="su-mobile" name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" value="${esc(d.mobile || "")}" required></div>
+      <div class="field"><label for="su-username">${t("username")}</label><input id="su-username" name="username" autocomplete="username" value="${esc(d.username || "")}" required></div>
+      <div class="field"><label for="su-password">${t("password")}</label><input id="su-password" name="password" type="password" autocomplete="new-password" required></div>
+      <div class="field"><label for="su-confirm">${t("confirm_password")}</label><input id="su-confirm" name="confirmPassword" type="password" autocomplete="new-password" required></div>`;
   } else if (store.signupStep === 2) {
     fields = `<div id="location-fields">${locationStepHtml(d)}</div>`;
   } else if (store.signupStep === 3) {
@@ -876,7 +876,7 @@ function screenGoogleComplete() {
   const stepHtml = `<div class="stepper" aria-hidden="true">${steps.map((_, i) => `<span class="step ${i + 1 < store.googleStep ? "done" : i + 1 === store.googleStep ? "active" : ""}"></span>`).join("")}</div>`;
   let fields = "";
   if (store.googleStep === 1) {
-    fields = `<div class="field"><label>${t("mobile")}</label><input name="mobile" inputmode="numeric" maxlength="10" value="${esc(d.mobile || "")}" required></div>`;
+    fields = `<div class="field"><label for="gc-mobile">${t("mobile")}</label><input id="gc-mobile" name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" value="${esc(d.mobile || "")}" required></div>`;
   } else if (store.googleStep === 2) {
     fields = `<div id="location-fields">${locationStepHtml(d)}</div>`;
   } else {
@@ -905,7 +905,7 @@ function screenForgot() {
   if (step === "identify") {
     body = `<p class="muted mt-1">${t("forgot_identify")}</p>
       <form id="forgot-id-form" novalidate>
-        <div class="field"><label>${t("mobile")}</label><input name="mobile" inputmode="numeric" maxlength="10" required></div>
+        <div class="field"><label for="fg-mobile">${t("mobile")}</label><input id="fg-mobile" name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" required></div>
         <button type="submit" class="btn block mt-2">${t("submit")}</button>
       </form>`;
   } else if (step === "otp") {
@@ -914,8 +914,8 @@ function screenForgot() {
       <p class="otp-resend"><button type="button" class="link-btn" id="otp-resend">${t("resend_otp")}</button></p>`;
   } else if (step === "reset") {
     body = `<form id="reset-form" novalidate>
-      <div class="field"><label>${t("new_password")}</label><input name="newPassword" type="password" required></div>
-      <div class="field"><label>${t("confirm_password")}</label><input name="confirmPassword" type="password" required></div>
+      <div class="field"><label for="reset-newpw">${t("new_password")}</label><input id="reset-newpw" name="newPassword" type="password" autocomplete="new-password" required></div>
+      <div class="field"><label for="reset-confirmpw">${t("confirm_password")}</label><input id="reset-confirmpw" name="confirmPassword" type="password" autocomplete="new-password" required></div>
       <button type="submit" class="btn block mt-2">${t("save")}</button>
     </form>`;
   } else {
@@ -939,8 +939,8 @@ function screenForcePassword() {
       <div class="auth-brand"><div class="glyph">${ic("sprout", 20)}</div><div class="auth-brand-name brand-face">${t("brand")}</div></div>
       <h1 style="font-size:19px">${t("force_password_change")}</h1>
       <form id="force-pw-form" novalidate>
-        <div class="field"><label>${t("new_password")}</label><input name="newPassword" type="password" required></div>
-        <div class="field"><label>${t("confirm_password")}</label><input name="confirmPassword" type="password" required></div>
+        <div class="field"><label for="fp-newpw">${t("new_password")}</label><input id="fp-newpw" name="newPassword" type="password" autocomplete="new-password" required></div>
+        <div class="field"><label for="fp-confirmpw">${t("confirm_password")}</label><input id="fp-confirmpw" name="confirmPassword" type="password" autocomplete="new-password" required></div>
         <button type="submit" class="btn block mt-2">${t("set_password")}</button>
       </form>
     </div>
@@ -1164,8 +1164,8 @@ function centerSettings() {
   return `<h2 class="section-title">${t("change_password")}</h2>
   <div class="card" style="max-width:420px">
     <form id="center-pw-form" novalidate>
-      <div class="field"><label>${t("password")}</label><input name="oldPassword" type="password" required></div>
-      <div class="field"><label>${t("new_password")}</label><input name="newPassword" type="password" required></div>
+      <div class="field"><label for="cpw-old">${t("password")}</label><input id="cpw-old" name="oldPassword" type="password" autocomplete="current-password" required></div>
+      <div class="field"><label for="cpw-new">${t("new_password")}</label><input id="cpw-new" name="newPassword" type="password" autocomplete="new-password" required></div>
       <button class="btn" type="submit">${t("save")}</button>
     </form>
   </div>`;
@@ -1190,10 +1190,10 @@ function subscribeCenterQueue() {
 function centerMarkServed(tokenId, tokenData) {
   openModal({
     title: t("mark_served"),
-    body: `<div class="field"><label>${t("crop")}</label><input id="cm-crop" required></div>
-      <div class="field"><label>${t("weight")}</label><input id="cm-weight" inputmode="decimal" required></div>
-      <div class="field"><label>${t("rate")}</label><input id="cm-rate" inputmode="numeric" required></div>
-      <div class="field"><label>${t("grade")}</label><input id="cm-grade"></div>`,
+    body: `<div class="field"><label for="cm-crop">${t("crop")}</label><input id="cm-crop" required></div>
+      <div class="field"><label for="cm-weight">${t("weight")}</label><input id="cm-weight" inputmode="decimal" required></div>
+      <div class="field"><label for="cm-rate">${t("rate")}</label><input id="cm-rate" inputmode="numeric" required></div>
+      <div class="field"><label for="cm-grade">${t("grade")}</label><input id="cm-grade"></div>`,
     confirmText: t("confirm"),
     getData: (root) => ({
       crop: root.querySelector("#cm-crop").value.trim(),
@@ -1262,17 +1262,17 @@ function govRegisterForm() {
   return `<h2 class="section-title">${t("register_new_center")}</h2>
   <div class="card" style="max-width:560px">
     <form id="gov-register-form" novalidate>
-      <div class="field"><label>${t("center_name")}</label><input name="centerName" value="${esc(d.centerName || "")}" required></div>
-      <div class="field"><label>${t("center_code")}</label><input name="centerCode" maxlength="8" placeholder="FTB" value="${esc(d.centerCode || "")}" required></div>
+      <div class="field"><label for="gr-name">${t("center_name")}</label><input id="gr-name" name="centerName" value="${esc(d.centerName || "")}" required></div>
+      <div class="field"><label for="gr-code">${t("center_code")}</label><input id="gr-code" name="centerCode" maxlength="8" placeholder="FTB" value="${esc(d.centerCode || "")}" required></div>
       <div id="center-location-fields">${locationStepHtml(d)}</div>
-      <div class="field"><label>${t("village_address")}</label><input name="address" placeholder="${t("village_address_hint")}" value="${esc(d.address || "")}"></div>
+      <div class="field"><label for="gr-address">${t("village_address")}</label><input id="gr-address" name="address" placeholder="${t("village_address_hint")}" value="${esc(d.address || "")}"></div>
       <div class="grid-2">
-        <div class="field"><label>${t("center_capacity")}</label><input name="capacity" inputmode="numeric" value="${esc(d.capacity || "")}" required></div>
-        <div class="field"><label>${t("num_counters")}</label><input name="counters" inputmode="numeric" value="${esc(d.counters || "2")}" required></div>
+        <div class="field"><label for="gr-capacity">${t("center_capacity")}</label><input id="gr-capacity" name="capacity" inputmode="numeric" value="${esc(d.capacity || "")}" required></div>
+        <div class="field"><label for="gr-counters">${t("num_counters")}</label><input id="gr-counters" name="counters" inputmode="numeric" value="${esc(d.counters || "2")}" required></div>
       </div>
       <div class="field"><label>${t("crops_list")}</label>${cropsStepHtml(d.crops || [])}</div>
-      <div class="field"><label>${t("mobile")}</label><input name="mobile" inputmode="numeric" maxlength="10" value="${esc(d.mobile || "")}" required></div>
-      <div class="field"><label>${t("admin_name")}</label><input name="adminName" value="${esc(d.adminName || "")}" required></div>
+      <div class="field"><label for="gr-mobile">${t("mobile")}</label><input id="gr-mobile" name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" value="${esc(d.mobile || "")}" required></div>
+      <div class="field"><label for="gr-adminname">${t("admin_name")}</label><input id="gr-adminname" name="adminName" value="${esc(d.adminName || "")}" required></div>
       <button class="btn" type="submit">${t("create_center")}</button>
     </form>
   </div>`;
