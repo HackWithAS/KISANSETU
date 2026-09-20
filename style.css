@@ -468,4 +468,9 @@ tr:last-child td { border-bottom: 0; }
   th, td { padding: 8px 8px; font-size: 13px; }
   .token-card .token-num { font-size: 30px; }
   .brand-name { font-size: 17px; }
+  /* On phones, .bottom-nav already carries these same tabs — without
+     this, .role-tabs (which only hides at the 900px desktop breakpoint)
+     stays visible too, showing the exact same tabs a second time right
+     under the header. */
+  .role-tabs { display: none; }
 }
