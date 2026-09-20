@@ -59,6 +59,7 @@ const ICONS = {
   checkCircle: '<circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/>',
   minus: '<path d="M5 12h14"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/>',
+  play: '<path d="M7 4l13 8-13 8V4Z"/>',
   power: '<path d="M12 3v8"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/>',
 };
 function ic(name, size = 18) {
@@ -152,6 +153,20 @@ const I18N = {
     queue_sync_ok: "किसानों को कतार दिख रही है ({n} प्रतीक्षा में)",
     queue_sync_fail: "कतार किसानों तक नहीं पहुँची ({code})।",
     queue_sync_hint: "नई firestore.rules Publish करें और पेज रीफ़्रेश करें।",
+    try_demo: "डेमो आज़माएँ", demo_pick_role: "देखने के लिए एक भूमिका चुनें — कोई भी असली लॉगिन ज़रूरी नहीं", demo_mode: "डेमो मोड",
+    demo_mode_banner: "आप डेमो मोड में हैं — यह डेटा नकली है और सहेजा नहीं जाता।", exit_demo: "डेमो से बाहर निकलें",
+    demo_active_token_exists: "आपके पास पहले से एक सक्रिय डेमो टोकन है।",
+    demo_advance_queue: "कतार आगे बढ़ाएँ (डेमो)", demo_your_turn: "आपकी बारी है!",
+    demo_notif_booked: "आपका टोकन {center} पर बुक हो गया है।", demo_notif_cancelled: "आपका टोकन रद्द कर दिया गया है।",
+    demo_notif_served: "{center} पर आपकी खरीद दर्ज हो गई है।", demo_notif_noshow: "{center} पर आपका टोकन नो-शो के रूप में चिह्नित किया गया।",
+    demo_notif_purchase: "{crop} की खरीद ₹{amount} में दर्ज की गई।",
+    demo_add_purchase: "स्थानीय खरीद जोड़ें (डेमो)", demo_crop: "फ़सल", demo_weight: "मात्रा (क्विंटल)", demo_rate: "दर (₹/क्विंटल)",
+    demo_center_open: "केंद्र खुला है", demo_center_closed: "केंद्र बंद है", demo_toggle_status: "स्थिति बदलें (डेमो)",
+    demo_farmer_profile: "किसान प्रोफ़ाइल (डेमो)", demo_land: "भूमि", demo_main_crops: "मुख्य फ़सलें",
+    demo_gov_total_centers: "कुल केंद्र", demo_gov_open_centers: "खुले केंद्र", demo_gov_total_farmers: "कुल किसान", demo_gov_today_purchases: "आज की खरीद",
+    demo_activate: "सक्रिय करें (डेमो)", demo_deactivate: "निष्क्रिय करें (डेमो)", demo_open: "खोलें (डेमो)", demo_close: "बंद करें (डेमो)",
+    demo_register_preview_title: "नया केंद्र पंजीकरण (डेमो पूर्वावलोकन)",
+    demo_register_preview_body: "असली डैशबोर्ड में, यह पूरा फ़ॉर्म खोलता है — केंद्र का नाम, पता, क्षमता, स्वीकृत फ़सलें, एडमिन विवरण — और तुरंत एक लॉगिन बना देता है। डेमो मोड में यह क्रिया अक्षम है ताकि कोई नकली डेटा असली सिस्टम में न जाए।",
   },
   en: {
     brand: "Kisan Setu", tagline: "Connecting farmers and procurement centers, simply.",
@@ -238,6 +253,20 @@ const I18N = {
     queue_sync_ok: "Farmers can see the queue ({n} waiting)",
     queue_sync_fail: "The queue could not be sent to farmers ({code}).",
     queue_sync_hint: "Publish the latest firestore.rules and refresh the page.",
+    try_demo: "Try Demo", demo_pick_role: "Pick a role to explore — no real login needed", demo_mode: "Demo Mode",
+    demo_mode_banner: "You're in Demo Mode — this data is fake and is never saved.", exit_demo: "Exit Demo",
+    demo_active_token_exists: "You already have an active demo token.",
+    demo_advance_queue: "Advance queue (Demo)", demo_your_turn: "It's your turn!",
+    demo_notif_booked: "Your token at {center} is booked.", demo_notif_cancelled: "Your token has been cancelled.",
+    demo_notif_served: "Your purchase at {center} has been recorded.", demo_notif_noshow: "Your token at {center} was marked no-show.",
+    demo_notif_purchase: "Purchase of {crop} recorded for ₹{amount}.",
+    demo_add_purchase: "Add local purchase (Demo)", demo_crop: "Crop", demo_weight: "Quantity (quintal)", demo_rate: "Rate (₹/quintal)",
+    demo_center_open: "Center is open", demo_center_closed: "Center is closed", demo_toggle_status: "Toggle status (Demo)",
+    demo_farmer_profile: "Farmer profile (Demo)", demo_land: "Land", demo_main_crops: "Main crops",
+    demo_gov_total_centers: "Total centers", demo_gov_open_centers: "Open centers", demo_gov_total_farmers: "Total farmers", demo_gov_today_purchases: "Today's purchases",
+    demo_activate: "Activate (Demo)", demo_deactivate: "Deactivate (Demo)", demo_open: "Open (Demo)", demo_close: "Close (Demo)",
+    demo_register_preview_title: "Register new center (Demo preview)",
+    demo_register_preview_body: "In the real dashboard, this opens the full form — center name, address, capacity, accepted crops, admin details — and creates a working login instantly. It's disabled here in Demo Mode so no fake data ever touches the real system.",
   },
 };
 function t(key) { return (I18N[store.lang] && I18N[store.lang][key]) || I18N.hi[key] || key; }
@@ -271,6 +300,9 @@ const store = {
   _unsub: {},
   _confirmResult: null,
   _opBusy: new Set(),
+  demoActive: false,
+  demoRole: null,
+  demoTab: null,
 };
 
 function newCaptcha() {
@@ -455,6 +487,12 @@ let pendingLoginRole = null;
 let profileProvisioningUid = null;
 
 onAuthStateChanged(auth, async (user) => {
+  // Demo Mode is fully isolated from Firebase: whatever this listener is
+  // about to do (read Firestore, change store.screen) never runs while a
+  // demo is open, so it can never overwrite demo state or leak a real
+  // session into it.
+  if (store.demoActive) return;
+
   // Phone OTP creates a temporary Auth session for password recovery.
   // Never route that session into a normal role dashboard.
   if (store.screen === "forgot") {
@@ -963,6 +1001,16 @@ function screenLogin() {
           ${roleCard("gov", "users", t("role_gov"))}
         </div>
         <div id="login-form-slot">${loginFormHtml()}</div>
+        <div class="auth-divider"><span>${t("or_divider")}</span></div>
+        <button type="button" class="btn ghost block demo-cta-btn" id="go-demo">${ic("play", 16)}${t("try_demo")}</button>
+        <div class="demo-picker" id="demo-picker" hidden>
+          <p class="tiny muted mb-1">${t("demo_pick_role")}</p>
+          <div class="demo-role-grid">
+            <button type="button" class="demo-role-btn" data-demo-role="farmer">${ic("user", 20)}<span>${t("role_farmer")}</span></button>
+            <button type="button" class="demo-role-btn" data-demo-role="center">${ic("building", 20)}<span>${t("role_center")}</span></button>
+            <button type="button" class="demo-role-btn" data-demo-role="gov">${ic("users", 20)}<span>${t("role_gov")}</span></button>
+          </div>
+        </div>
         <div class="auth-foot-links">
           <button type="button" id="go-about">${t("about")}</button>
           <button type="button" id="go-help">${t("help")}</button>
@@ -2176,8 +2224,365 @@ function wireGovRegister() {
   });
 }
 
+/* ============================== DEMO MODE ==============================
+   A fully local, in-memory layer for SIH judges to explore the product.
+   Hard isolation rules this whole section follows:
+   - never reads or writes Firestore, never calls Firebase Auth, never
+     calls a Cloud Function;
+   - never touches store.user or store.profile (those stay reserved for a
+     real authenticated session) — everything demo-related lives on
+     store.demoActive / store.demoRole / store.demoTab and in DEMO_STATE;
+   - the real login/signup/Google-login flow, and every real
+     farmer/center/gov screen, is completely untouched by this section.
+*/
+
+const DEMO_DATA = {
+  farmer: {
+    name: "रामलाल यादव", mobile: "98765 43210",
+    state: "उत्तर प्रदेश", district: "बरेली", block: "बहेड़ी", village: "मझगवां",
+    landArea: "2.5 एकड़", crops: ["गेहूँ", "गन्ना", "सरसों"],
+  },
+  centers: [
+    { id: "DEMO-C1", name: "बरेली मंडी केंद्र", district: "बरेली", distanceKm: 3.2, counters: 3, capacity: 400, estWait: 22, acceptedCrops: ["गेहूँ", "गन्ना"] },
+    { id: "DEMO-C2", name: "नवाबगंज क्रय केंद्र", district: "बरेली", distanceKm: 7.8, counters: 2, capacity: 250, estWait: 40, acceptedCrops: ["गेहूँ", "सरसों"] },
+    { id: "DEMO-C3", name: "फरीदपुर सहकारी केंद्र", district: "बरेली", distanceKm: 12.4, counters: 2, capacity: 200, estWait: null, acceptedCrops: ["गन्ना"] },
+  ],
+  purchases: [
+    { crop: "गेहूँ", centerName: "बरेली मंडी केंद्र", quantity: "18 क्विंटल", amount: 39600, grade: "A", paymentStatus: "paid", dateLabel: "12 मार्च 2025" },
+    { crop: "सरसों", centerName: "नवाबगंज क्रय केंद्र", quantity: "6 क्विंटल", amount: 33000, grade: "B", paymentStatus: "processing", dateLabel: "2 फ़रवरी 2025" },
+  ],
+  centerQueueFarmers: [
+    { name: "सुरेश कुमार", crop: "गेहूँ" },
+    { name: "मीना देवी", crop: "गन्ना" },
+    { name: "अजय सिंह", crop: "सरसों" },
+  ],
+  govCenters: [
+    { id: "DEMO-C1", name: "बरेली मंडी केंद्र", district: "बरेली", status: "open", govStatus: "active", counters: 3 },
+    { id: "DEMO-C2", name: "नवाबगंज क्रय केंद्र", district: "बरेली", status: "open", govStatus: "active", counters: 2 },
+    { id: "DEMO-C3", name: "फरीदपुर सहकारी केंद्र", district: "बरेली", status: "closed", govStatus: "active", counters: 2 },
+    { id: "DEMO-C4", name: "मीरगंज क्रय केंद्र", district: "बरेली", status: "closed", govStatus: "inactive", counters: 1 },
+  ],
+  govAlerts: [
+    "फरीदपुर सहकारी केंद्र पिछले 2 दिनों से बंद है।",
+    "मीरगंज केंद्र निष्क्रिय है — सक्रिय करना बाकी है।",
+  ],
+};
+
+function freshDemoState() {
+  return {
+    farmerToken: null,
+    farmerNotifs: [],
+    farmerPurchases: DEMO_DATA.purchases.map((p) => ({ ...p })),
+    centerQueue: DEMO_DATA.centerQueueFarmers.map((f, i) => ({ ...f, id: "dq" + i, tokenNo: "48291" + i })),
+    centerServedCount: 0,
+    centerStatus: "open",
+    centerNotifs: [],
+    centerPurchases: [],
+    govCenters: DEMO_DATA.govCenters.map((c) => ({ ...c })),
+  };
+}
+let DEMO_STATE = freshDemoState();
+
+function demoPushNotif(list, text) {
+  list.unshift({ text, time: new Date() });
+}
+
+function enterDemo(role) {
+  DEMO_STATE = freshDemoState();
+  store.demoActive = true;
+  store.demoRole = role;
+  store.demoTab = role === "farmer" ? "home" : role === "center" ? "queue" : "overview";
+  try { sessionStorage.setItem("ks_demo_role", role); } catch (_) {}
+  paintScreen();
+}
+function exitDemo() {
+  store.demoActive = false;
+  store.demoRole = null;
+  store.demoTab = null;
+  DEMO_STATE = freshDemoState();
+  try { sessionStorage.removeItem("ks_demo_role"); } catch (_) {}
+  store.screen = "login";
+  paintScreen();
+}
+
+function demoNavItems() {
+  if (store.demoRole === "farmer") return [["home", "mapPin", t("nav_home")], ["token", "ticket", t("nav_token")], ["history", "history", t("nav_history")], ["notif", "bell", t("nav_notif")]];
+  if (store.demoRole === "center") return [["queue", "users", t("nav_queue")], ["capacity", "settings", t("nav_capacity")], ["notif", "bell", t("nav_notif")]];
+  return [["overview", "chart", t("nav_overview")], ["centers", "building", t("nav_centers")], ["register", "plus", t("nav_register")], ["alerts", "alert", t("nav_alerts")]];
+}
+function demoRoleLabel() {
+  return store.demoRole === "farmer" ? t("role_farmer") : store.demoRole === "center" ? t("role_center") : t("role_gov");
+}
+function demoBodyHtml() {
+  if (store.demoRole === "farmer") return demoFarmerBody();
+  if (store.demoRole === "center") return demoCenterBody();
+  return demoGovBody();
+}
+function demoShellHtml() {
+  const items = demoNavItems();
+  const active = store.demoTab;
+  return `<div class="demo-banner" role="status">${ic("info", 15)}<span>${t("demo_mode_banner")}</span><button type="button" id="demo-exit-banner" class="link-btn">${t("exit_demo")}</button></div>
+  <header class="topbar">
+    <div class="brand-mark"><div class="glyph">${ic("sprout", 18)}</div>
+      <div class="brand-name brand-face">${t("brand")}<small>${esc(demoRoleLabel())} · ${t("demo_mode")}</small></div></div>
+    <nav class="top-tabs">${items.map(([k, icon, label]) => `<button data-demo-tab="${k}" aria-current="${active === k}">${ic(icon, 16)}${label}</button>`).join("")}</nav>
+    <div class="spacer"></div>
+    <div class="topbar-actions">
+      ${langToggleHtml()}
+      <button class="icon-btn" id="theme-toggle" aria-label="${t("toggle_theme")}">${ic(store.theme === "dark" ? "sun" : "moon", 17)}</button>
+      <button class="btn ghost" id="demo-exit">${t("exit_demo")}</button>
+    </div>
+  </header>
+  <nav class="role-tabs">${items.map(([k, icon, label]) => `<button data-demo-tab="${k}" aria-current="${active === k}">${ic(icon, 16)}${label}</button>`).join("")}</nav>
+  <main id="main-content">${demoBodyHtml()}</main>
+  <nav class="bottom-nav">${items.slice(0, 5).map(([k, icon, label]) => `<button data-demo-tab="${k}" aria-current="${active === k}">${ic(icon)}<span>${label}</span></button>`).join("")}</nav>`;
+}
+function wireDemoShell() {
+  document.querySelectorAll("[data-demo-tab]").forEach((b) => b.addEventListener("click", () => { store.demoTab = b.dataset.demoTab; paintScreen(); }));
+  const themeBtn = document.getElementById("theme-toggle");
+  if (themeBtn) themeBtn.addEventListener("click", () => setTheme(store.theme === "dark" ? "light" : "dark"));
+  const exit1 = document.getElementById("demo-exit"); if (exit1) exit1.addEventListener("click", exitDemo);
+  const exit2 = document.getElementById("demo-exit-banner"); if (exit2) exit2.addEventListener("click", exitDemo);
+  if (store.demoRole === "farmer") wireDemoFarmer();
+  else if (store.demoRole === "center") wireDemoCenter();
+  else wireDemoGov();
+}
+
+/* ---- Farmer demo ---- */
+function demoFarmerBody() {
+  const tab = store.demoTab;
+  if (tab === "home") return demoFarmerHome();
+  if (tab === "token") return demoFarmerToken();
+  if (tab === "history") return demoFarmerHistory();
+  if (tab === "notif") return demoFarmerNotif();
+  return "";
+}
+function demoFarmerHome() {
+  const f = DEMO_DATA.farmer;
+  const centersHtml = DEMO_DATA.centers.map((c) => {
+    const open = c.estWait != null;
+    return `<div class="center-item">
+      <div>
+        <div class="name">${esc(c.name)}</div>
+        <div class="meta-line">
+          <span>${c.distanceKm} ${t("km_away")}</span>
+          <span>${t("est_wait")}: ${open ? c.estWait + " min" : "—"}</span>
+          <span class="badge ${open ? "green" : "red"}">${open ? t("open_now") : t("closed_now")}</span>
+        </div>
+      </div>
+      <div class="actions"><button class="btn gold" data-demo-book="${c.id}" ${open ? "" : "disabled"}>${t("book_token")}</button></div>
+    </div>`;
+  }).join("");
+  return `<h2 class="section-title">${t("demo_farmer_profile")}</h2>
+    <div class="card">
+      <div class="history-item"><span><b>${esc(f.name)}</b> · ${esc(f.mobile)}</span></div>
+      <div class="history-item"><span>${esc(f.village)}, ${esc(f.block)}, ${esc(f.district)}, ${esc(f.state)}</span></div>
+      <div class="history-item"><span>${t("demo_land")}: ${esc(f.landArea)} · ${t("demo_main_crops")}: ${esc(f.crops.join(", "))}</span></div>
+    </div>
+    <h2 class="section-title">${t("nearby_centers")}</h2>
+    <div class="card">${centersHtml}</div>`;
+}
+function demoFarmerToken() {
+  const tok = DEMO_STATE.farmerToken;
+  if (!tok) return `<h2 class="section-title">${t("my_token")}</h2>${emptyState("ticket", t("no_active_token"), t("no_active_token_desc"))}`;
+  const atFront = tok.queuePosition <= 1;
+  return `<h2 class="section-title">${t("my_token")}</h2>
+    <div class="token-card">
+      <span class="status-pill badge gold">${t("token_status_waiting")}</span>
+      <div class="token-num">#${tok.id.slice(-6).toUpperCase()}</div>
+      <div class="token-meta">
+        <div><div class="k">${t("center_id")}</div><div class="v">${esc(tok.centerName)}</div></div>
+        <div><div class="k">${t("queue_position")}</div><div class="v">${tok.queuePosition}</div></div>
+        <div><div class="k">${t("est_wait")}</div><div class="v">${tok.estWait != null ? tok.estWait + " min" : "—"}</div></div>
+      </div>
+      ${atFront ? `<p class="tiny" style="color:var(--accent-strong);font-weight:600">${t("demo_your_turn")}</p>` : ""}
+    </div>
+    <div class="row gap-s mt-2">
+      ${atFront ? "" : `<button class="btn ghost" id="demo-advance-queue">${t("demo_advance_queue")}</button>`}
+      <button class="btn ghost" id="demo-cancel-token">${t("cancel_token")}</button>
+    </div>`;
+}
+function demoFarmerHistory() {
+  const list = DEMO_STATE.farmerPurchases;
+  if (!list.length) return `<h2 class="section-title">${t("purchase_history")}</h2>${emptyState("history", t("no_history"), t("no_history_desc"))}`;
+  return `<h2 class="section-title">${t("purchase_history")}</h2>
+    <div class="card">${list.map((p) => `<div class="history-item"><div>
+        <div class="row gap-s"><b>${esc(p.crop)}</b><span class="tiny muted">${esc(p.dateLabel)}</span></div>
+        <div class="tiny muted">${esc(p.centerName)} · ${esc(p.quantity)} · ${t("grade")}: ${esc(p.grade)}</div>
+      </div>
+      <div class="amount">${fmtINR(p.amount)}<div><span class="badge ${p.paymentStatus === "paid" ? "green" : "gold"}">${t(p.paymentStatus)}</span></div></div>
+    </div>`).join("")}</div>`;
+}
+function demoFarmerNotif() {
+  const list = DEMO_STATE.farmerNotifs;
+  if (!list.length) return `<h2 class="section-title">${t("notifications")}</h2>${emptyState("bell", t("no_notifications"), t("no_notifications_desc"))}`;
+  return `<h2 class="section-title">${t("notifications")}</h2>
+    <div class="card">${list.map((n) => `<div class="history-item"><span>${esc(n.text)}</span></div>`).join("")}</div>`;
+}
+function wireDemoFarmer() {
+  document.querySelectorAll("[data-demo-book]").forEach((b) => b.addEventListener("click", () => {
+    if (DEMO_STATE.farmerToken) { showToast(t("demo_active_token_exists")); return; }
+    const center = DEMO_DATA.centers.find((c) => c.id === b.dataset.demoBook);
+    if (!center) return;
+    DEMO_STATE.farmerToken = {
+      id: "DT" + Date.now(), centerId: center.id, centerName: center.name,
+      queuePosition: DEMO_STATE.centerQueue.length + 1, estWait: center.estWait,
+    };
+    demoPushNotif(DEMO_STATE.farmerNotifs, t("demo_notif_booked").replace("{center}", center.name));
+    showToast(t("saved"));
+    store.demoTab = "token";
+    paintScreen();
+  }));
+  const advance = document.getElementById("demo-advance-queue");
+  if (advance) advance.addEventListener("click", () => {
+    if (DEMO_STATE.farmerToken && DEMO_STATE.farmerToken.queuePosition > 1) DEMO_STATE.farmerToken.queuePosition--;
+    paintScreen();
+  });
+  const cancel = document.getElementById("demo-cancel-token");
+  if (cancel) cancel.addEventListener("click", () => {
+    const tok = DEMO_STATE.farmerToken;
+    if (!tok) return;
+    DEMO_STATE.farmerToken = null;
+    demoPushNotif(DEMO_STATE.farmerNotifs, t("demo_notif_cancelled"));
+    showToast(t("saved"));
+    paintScreen();
+  });
+}
+
+/* ---- Center demo ---- */
+function demoCenterBody() {
+  const tab = store.demoTab;
+  if (tab === "queue") return demoCenterQueue();
+  if (tab === "capacity") return demoCenterCapacity();
+  if (tab === "notif") return demoCenterNotif();
+  return "";
+}
+function demoCenterQueue() {
+  const q = DEMO_STATE.centerQueue;
+  if (!q.length) return `<h2 class="section-title">${t("queue_title")}</h2>${emptyState("users", t("no_queue"), t("no_queue_desc"))}`;
+  return `<h2 class="section-title">${t("queue_title")}</h2>
+    <div class="card">${q.map((tk, i) => `<div class="queue-row"><span class="pos">${i + 1}</span>
+        <div class="col" style="flex:1"><b>${esc(tk.name)}</b><span class="tiny muted">#${tk.tokenNo}</span><span class="tiny muted">${esc(tk.crop)}</span></div>
+        ${i === 0 ? `<button class="btn" data-demo-serve="${tk.id}">${t("mark_served")}</button><button class="btn ghost" data-demo-noshow="${tk.id}">${t("mark_noshow")}</button>` : ""}
+      </div>`).join("")}</div>`;
+}
+function demoCenterCapacity() {
+  const open = DEMO_STATE.centerStatus === "open";
+  return `<h2 class="section-title">${t("center_status")}</h2>
+    <div class="card">
+      <div class="history-item"><span class="badge ${open ? "green" : "red"}">${open ? t("demo_center_open") : t("demo_center_closed")}</span></div>
+      <div class="history-item"><span>${t("nav_capacity")}: 400 · ${t("num_counters")}: 3</span></div>
+      <button class="btn ghost mt-1" id="demo-toggle-status">${t("demo_toggle_status")}</button>
+    </div>
+    <h2 class="section-title">${t("demo_add_purchase")}</h2>
+    <div class="card">
+      <div class="field"><label for="dp-crop">${t("demo_crop")}</label><input id="dp-crop" value="गेहूँ"></div>
+      <div class="field"><label for="dp-weight">${t("demo_weight")}</label><input id="dp-weight" inputmode="decimal" value="10"></div>
+      <div class="field"><label for="dp-rate">${t("demo_rate")}</label><input id="dp-rate" inputmode="numeric" value="2200"></div>
+      <button class="btn" id="demo-add-purchase">${t("demo_add_purchase")}</button>
+    </div>`;
+}
+function demoCenterNotif() {
+  const list = DEMO_STATE.centerNotifs;
+  if (!list.length) return `<h2 class="section-title">${t("notifications")}</h2>${emptyState("bell", t("no_notifications"), t("no_notifications_desc"))}`;
+  return `<h2 class="section-title">${t("notifications")}</h2>
+    <div class="card">${list.map((n) => `<div class="history-item"><span>${esc(n.text)}</span></div>`).join("")}</div>`;
+}
+function wireDemoCenter() {
+  document.querySelectorAll("[data-demo-serve]").forEach((b) => b.addEventListener("click", () => {
+    const tk = DEMO_STATE.centerQueue.find((x) => x.id === b.dataset.demoServe);
+    if (!tk) return;
+    DEMO_STATE.centerQueue = DEMO_STATE.centerQueue.filter((x) => x.id !== tk.id);
+    DEMO_STATE.centerServedCount++;
+    demoPushNotif(DEMO_STATE.centerNotifs, t("demo_notif_served").replace("{center}", esc(tk.name)));
+    if (DEMO_STATE.farmerToken) { DEMO_STATE.farmerToken = null; }
+    showToast(t("saved"));
+    paintScreen();
+  }));
+  document.querySelectorAll("[data-demo-noshow]").forEach((b) => b.addEventListener("click", () => {
+    const tk = DEMO_STATE.centerQueue.find((x) => x.id === b.dataset.demoNoshow);
+    if (!tk) return;
+    DEMO_STATE.centerQueue = DEMO_STATE.centerQueue.filter((x) => x.id !== tk.id);
+    demoPushNotif(DEMO_STATE.centerNotifs, t("demo_notif_noshow").replace("{center}", esc(tk.name)));
+    showToast(t("saved"));
+    paintScreen();
+  }));
+  const toggle = document.getElementById("demo-toggle-status");
+  if (toggle) toggle.addEventListener("click", () => {
+    DEMO_STATE.centerStatus = DEMO_STATE.centerStatus === "open" ? "closed" : "open";
+    paintScreen();
+  });
+  const addPurchase = document.getElementById("demo-add-purchase");
+  if (addPurchase) addPurchase.addEventListener("click", () => {
+    const crop = document.getElementById("dp-crop").value.trim() || "गेहूँ";
+    const weight = Number(document.getElementById("dp-weight").value) || 0;
+    const rate = Number(document.getElementById("dp-rate").value) || 0;
+    const amount = weight * rate;
+    DEMO_STATE.centerPurchases.unshift({ crop, weight, rate, amount });
+    demoPushNotif(DEMO_STATE.centerNotifs, t("demo_notif_purchase").replace("{crop}", esc(crop)).replace("{amount}", amount.toLocaleString("en-IN")));
+    showToast(t("saved"));
+    paintScreen();
+  });
+}
+
+/* ---- Government demo ---- */
+function demoGovBody() {
+  const tab = store.demoTab;
+  if (tab === "overview") return demoGovOverview();
+  if (tab === "centers") return demoGovCenters();
+  if (tab === "register") return demoGovRegisterPreview();
+  if (tab === "alerts") return demoGovAlerts();
+  return "";
+}
+function demoGovOverview() {
+  const centers = DEMO_STATE.govCenters;
+  const open = centers.filter((c) => c.status === "open").length;
+  return `<h2 class="section-title">${t("nav_overview")}</h2>
+    <div class="kpi-grid">
+      <div class="card kpi"><div class="kpi-label">${t("demo_gov_total_centers")}</div><div class="kpi-value">${centers.length}</div></div>
+      <div class="card kpi"><div class="kpi-label">${t("demo_gov_open_centers")}</div><div class="kpi-value">${open}</div></div>
+      <div class="card kpi"><div class="kpi-label">${t("demo_gov_total_farmers")}</div><div class="kpi-value">1,248</div></div>
+      <div class="card kpi"><div class="kpi-label">${t("demo_gov_today_purchases")}</div><div class="kpi-value">37</div></div>
+    </div>`;
+}
+function demoGovCenters() {
+  const centers = DEMO_STATE.govCenters;
+  return `<h2 class="section-title">${t("nav_centers")}</h2>
+    <div class="card">${centers.map((c) => `<div class="history-item">
+      <div><b>${esc(c.name)}</b><div class="tiny muted">${esc(c.district)} · ${t("num_counters")}: ${c.counters}</div></div>
+      <div class="row gap-s">
+        <span class="badge ${c.status === "open" ? "green" : "red"}">${c.status === "open" ? t("open_now") : t("closed_now")}</span>
+        <span class="badge ${c.govStatus === "active" ? "green" : "muted"}">${c.govStatus === "active" ? t("gov_active") : t("gov_inactive")}</span>
+        <button class="btn ghost tiny" data-demo-gov-toggle="${c.id}">${c.govStatus === "active" ? t("demo_deactivate") : t("demo_activate")}</button>
+      </div>
+    </div>`).join("")}</div>`;
+}
+function demoGovRegisterPreview() {
+  return `<h2 class="section-title">${t("register_new_center")}</h2>
+    <div class="card">
+      <p><b>${t("demo_register_preview_title")}</b></p>
+      <p class="tiny muted">${t("demo_register_preview_body")}</p>
+    </div>`;
+}
+function demoGovAlerts() {
+  const alerts = DEMO_DATA.govAlerts;
+  return `<h2 class="section-title">${t("nav_alerts")}</h2>
+    <div class="card">${alerts.map((a) => `<div class="alert warn" role="status">${ic("alert")}<span>${esc(a)}</span></div>`).join("")}</div>`;
+}
+function wireDemoGov() {
+  document.querySelectorAll("[data-demo-gov-toggle]").forEach((b) => b.addEventListener("click", () => {
+    const c = DEMO_STATE.govCenters.find((x) => x.id === b.dataset.demoGovToggle);
+    if (!c) return;
+    c.govStatus = c.govStatus === "active" ? "inactive" : "active";
+    if (c.govStatus === "inactive") c.status = "closed";
+    showToast(t("saved"));
+    paintScreen();
+  }));
+}
+
 /* ============================== screen dispatcher ============================== */
 function screenHtml() {
+  if (store.demoActive) return demoShellHtml();
   if (store.screen === "loading") return `<div class="auth-panel" style="min-height:100vh"><p class="muted">${t("loading")}</p></div>`;
   if (store.screen === "login") return screenLogin();
   if (store.screen === "signup") return screenSignup();
@@ -2198,6 +2603,7 @@ function mount() { paintScreen(); if (["farmer", "center", "gov"].includes(store
 
 function wireScreen() {
   document.querySelectorAll("[data-lang]").forEach((b) => b.addEventListener("click", () => setLang(b.dataset.lang)));
+  if (store.demoActive) { wireDemoShell(); return; }
   if (store.screen === "login") {
     newCaptcha();
     wireLoginForm();
@@ -2206,6 +2612,9 @@ function wireScreen() {
     const about = document.getElementById("go-about"), help = document.getElementById("go-help");
     if (about) about.addEventListener("click", () => openModal({ title: t("about_title"), body: t("about_body"), confirmText: t("confirm") }));
     if (help) help.addEventListener("click", () => openModal({ title: t("help_title"), body: t("faq_book_a"), confirmText: t("confirm") }));
+    const demoBtn = document.getElementById("go-demo"), demoPicker = document.getElementById("demo-picker");
+    if (demoBtn && demoPicker) demoBtn.addEventListener("click", () => { demoPicker.hidden = !demoPicker.hidden; });
+    document.querySelectorAll("[data-demo-role]").forEach((b) => b.addEventListener("click", () => enterDemo(b.dataset.demoRole)));
   } else if (store.screen === "signup") {
     if (!store.signupData.captcha) newCaptcha();
     const form = document.getElementById("signup-form");
@@ -2271,4 +2680,15 @@ function wireOtpBoxes() {
 /* ============================== boot ============================== */
 applyTheme();
 document.documentElement.lang = store.lang === "hi" ? "hi" : "en";
+
+// Restore Demo Mode across a refresh without ever touching Firebase: if
+// the tab was in demo mode, re-enter it locally before anything else
+// runs. onAuthStateChanged's own `if (store.demoActive) return;` guard
+// (above) means whatever Firebase does after this is a no-op either way.
+(function restoreDemoIfAny() {
+  try {
+    const savedRole = sessionStorage.getItem("ks_demo_role");
+    if (savedRole && ["farmer", "center", "gov"].includes(savedRole)) enterDemo(savedRole);
+  } catch (_) {}
+})();
 paintScreen();

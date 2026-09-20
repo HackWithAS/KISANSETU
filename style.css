@@ -345,6 +345,26 @@ tr:last-child td { border-bottom: 0; }
 .google-btn { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .google-btn svg { width: 16px; height: 16px; }
 
+.demo-cta-btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.demo-picker { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius-m); background: var(--cream); }
+.demo-role-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.demo-role-btn {
+  border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-m);
+  padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  cursor: pointer; font-size: 12.5px; color: var(--text-muted);
+  transition: border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.demo-role-btn svg { width: 20px; height: 20px; }
+.demo-role-btn:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+
+.demo-banner {
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+  background: var(--highlight-strong); color: #182018; font-size: 13px; font-weight: 600;
+  padding: 8px 12px; text-align: center;
+}
+.demo-banner svg { width: 15px; height: 15px; flex-shrink: 0; }
+.demo-banner .link-btn { color: #182018; text-decoration: underline; font-weight: 700; margin-left: 4px; }
+
 .crop-group-title { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 12px 0 6px; }
 .crop-group-title:first-child { margin-top: 0; }
 .crop-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 14px; }
