@@ -269,65 +269,71 @@ service cloud.firestore {
       // (see {tokenId} below), which is what makes "only one active
       // waiting token per farmer" atomic without a transaction: Firestore
       // classifies a write to an already-existing document as an
-      // "update", never a "create", so a second booking attempt for the
-      // same farmer — however it races with the first — is evaluated
-      // against `allow update` below, which only ever permits this exact
-      // farmer's own waiting -> cancelled transition, never a second
-      // "waiting" write. Rules alone cannot enforce a database-wide
-      // uniqueness constraint across arbitrary document IDs; pinning the
-      // ID to the farmer's uid is what sidesteps that limitation instead
-      // of requiring one.
-      //
-      // LIMITATION: because the slot is keyed by farmerId, this farmer
-      // can cancel their own waiting token (see `allow update` below) but
-      // still cannot create a *new* one while this document exists in
-      // any status — a farmer has no delete rights over it below, so the
-      // client alone can never fully recycle the slot after a
-      // cancellation. Actually freeing the slot for a fresh booking
-      // still requires a trusted server operation to remove/reset this
-      // document (see markNoShow/createPurchase, not yet converted).
+      // "update", never a "create", so a second booking attempt while a
+      // token is still "waiting" is evaluated against `allow update`
+      // below, whose booking branch requires `resource.data.status !=
+      // 'waiting'` — so it's rejected exactly when, and only when, this
+      // farmer already has a live waiting token. Once resolved (this
+      // farmer cancelled it, or it reaches 'done'/'no-show' via a future
+      // trusted operation) the very same rule lets the farmer book again
+      // by overwriting this document with a brand-new, fully-revalidated
+      // booking — same checks as a first-time create. Rules alone cannot
+      // enforce a database-wide uniqueness constraint across arbitrary
+      // document IDs; pinning the ID to the farmer's uid, plus branching
+      // on resource.data.status, is what sidesteps that limitation
+      // instead of requiring a transaction.
+      function validBooking() {
+        return request.resource.data.farmerId == request.auth.uid
+          && request.resource.data.farmerName == caller().name
+          && request.resource.data.status == 'waiting'
+          && request.resource.data.centerId is string
+          && get(centerPath(request.resource.data.centerId)).data.govStatus == 'active'
+          && get(centerPath(request.resource.data.centerId)).data.status == 'open'
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.updatedAt == request.time
+          && request.resource.data.keys().hasOnly([
+            'farmerId','farmerName','centerId','status','createdAt','updatedAt'
+          ]);
+      }
+
       allow create: if isActiveFarmer()
         && tokenId == request.auth.uid
-        && request.resource.data.farmerId == request.auth.uid
-        && request.resource.data.farmerName == caller().name
-        && request.resource.data.status == 'waiting'
-        && request.resource.data.centerId is string
-        && get(centerPath(request.resource.data.centerId)).data.govStatus == 'active'
-        && get(centerPath(request.resource.data.centerId)).data.status == 'open'
-        && request.resource.data.createdAt == request.time
-        && request.resource.data.updatedAt == request.time
-        && request.resource.data.keys().hasOnly([
-          'farmerId','farmerName','centerId','status','createdAt','updatedAt'
-        ]);
+        && validBooking();
 
-      // Spark-plan cancel: the farmer's own browser tab updates the
-      // document directly. Scoped tightly so this can only ever be a
-      // farmer cancelling their own still-waiting token, and only ever
-      // that one transition:
-      //  - tokenId == request.auth.uid / resource.data.farmerId ==
-      //    request.auth.uid: it must be this farmer's own token, not
-      //    merely any token — belt-and-suspenders, since the ID is
-      //    already pinned to the farmer's uid at create time.
-      //  - resource.data.status == 'waiting': you can only cancel a
-      //    token that is still waiting — not one already done/cancelled/
-      //    no-show — so a farmer can never resurrect or replay a
-      //    finished token.
-      //  - onlyChanged(['status','updatedAt']) plus the exact new value
-      //    of each: nothing else about the token (farmerId, farmerName,
-      //    centerId, createdAt) can move, and status may only become
-      //    'cancelled' — never 'done' or anything else — so this rule
-      //    can never be reused to self-serve a token.
+      // Two, and only two, update paths for a farmer's own token document:
+      //  1. Cancel: resource.data.status == 'waiting' -> 'cancelled',
+      //     touching only status + updatedAt. A farmer can never
+      //     resurrect or replay an already-finished token this way,
+      //     since it requires the token to currently be 'waiting'.
+      //  2. Rebook: resource.data.status != 'waiting' (this farmer's
+      //     previous token was cancelled, or is otherwise resolved) and
+      //     the new document is a full, freshly-revalidated booking —
+      //     exactly the same checks a brand-new create would need. This
+      //     is what lets a farmer book again after cancelling, without
+      //     ever allowing it while a token is still live.
+      // In both paths, `tokenId == request.auth.uid` and
+      // `resource.data.farmerId == request.auth.uid` pin the write to
+      // this farmer's own token — belt-and-suspenders, since the ID is
+      // already pinned to the farmer's uid at create time.
       allow update: if isActiveFarmer()
         && tokenId == request.auth.uid
         && resource.data.farmerId == request.auth.uid
-        && resource.data.status == 'waiting'
-        && onlyChanged(['status', 'updatedAt'])
-        && request.resource.data.status == 'cancelled'
-        && request.resource.data.updatedAt == request.time;
+        && (
+          (
+            resource.data.status == 'waiting'
+            && onlyChanged(['status', 'updatedAt'])
+            && request.resource.data.status == 'cancelled'
+            && request.resource.data.updatedAt == request.time
+          ) ||
+          (
+            resource.data.status != 'waiting'
+            && validBooking()
+          )
+        );
 
-      // Every other status transition (waiting -> done/no-show, or any
-      // change initiated by a center/gov account) remains
-      // server-controlled, exactly as before.
+      // Deleting a token document (e.g. to fully clear the slot) remains
+      // server-controlled — a farmer only ever cancels or rebooks, never
+      // deletes, and centers/gov have no rights here yet either.
       allow delete: if false;
     }
 

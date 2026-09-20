@@ -100,6 +100,7 @@ const I18N = {
     last_updated: "अंतिम अपडेट", book_token: "टोकन बुक करें", no_centers_found: "कोई केंद्र नहीं मिला",
     no_centers_desc: "आपके क्षेत्र में अभी कोई सक्रिय केंद्र दर्ज नहीं है।",
     my_token: "मेरा टोकन", no_active_token: "कोई सक्रिय टोकन नहीं", no_active_token_desc: "नज़दीकी केंद्रों में से एक टोकन बुक करें।",
+    active_token_exists: "आपके पास पहले से एक सक्रिय टोकन है।",
     token_status_waiting: "प्रतीक्षा में", token_status_done: "पूर्ण", token_status_noshow: "अनुपस्थित",
     slot: "समय", queue_position: "कतार में स्थान", cancel_token: "टोकन रद्द करें", cancel_token_confirm_title: "टोकन रद्द करें?",
     cancel_token_confirm_body: "रद्द करने के बाद यह टोकन वापस नहीं लिया जा सकता।",
@@ -164,6 +165,7 @@ const I18N = {
     last_updated: "Last updated", book_token: "Book token", no_centers_found: "No centers found",
     no_centers_desc: "No active center is on record in your area yet.",
     my_token: "My token", no_active_token: "No active token", no_active_token_desc: "Book a token from one of the nearby centers.",
+    active_token_exists: "You already have an active token.",
     token_status_waiting: "Waiting", token_status_done: "Done", token_status_noshow: "No-show",
     slot: "Slot", queue_position: "Queue position", cancel_token: "Cancel token", cancel_token_confirm_title: "Cancel this token?",
     cancel_token_confirm_body: "Once cancelled, this token cannot be restored.",
@@ -1157,21 +1159,18 @@ function subscribeFarmerHome() {
    random ID. That single choice is what makes "only one active token per
    farmer" an atomic, server-enforced guarantee instead of a client-side
    hope: Firestore itself classifies a write to an existing document as an
-   "update", never a "create", so if this farmer already has a token
-   document here, a second booking attempt is evaluated against the
-   tokens `allow update` rule — which only ever permits a farmer's own
-   waiting -> cancelled transition (see subscribeFarmerToken's cancel
-   handler), never a second "waiting" write — so no matter how many
-   booking attempts race each other, at most one waiting token can ever
-   exist for this farmer. The pre-check below (reading tokens/{uid}) only
-   exists to show a friendly message instead of a raw permission error;
-   it is not what provides the uniqueness guarantee, and the catch block
-   still handles the case where the pre-check missed a concurrent write.
-   LIMITATION: because the slot is keyed by farmerId, once a token
-   document exists here in a status other than "waiting" (done/no-show,
-   or after this farmer cancels it), this farmer cannot book again until
-   that document is removed or reset by a trusted server operation — see
-   markNoShow/createPurchase in the flow audit, not yet converted. */
+   "update", never a "create", so a second booking attempt while a token
+   is still "waiting" is evaluated against the tokens `allow update` rule,
+   whose rebooking branch requires the existing token to already be
+   resolved (not "waiting") — so no matter how many booking attempts race
+   each other, at most one waiting token can ever exist for this farmer.
+   The same rule lets the farmer book again once their previous token is
+   cancelled (or later, done/no-show), which is what makes this a
+   reusable per-farmer slot rather than a one-time-use document. The
+   pre-check below (reading tokens/{uid}) only exists to show a friendly
+   message instead of a raw permission error; it is not what provides the
+   uniqueness guarantee, and the catch block still handles the case where
+   the pre-check missed a concurrent write. */
 function startBooking(centerId, center) {
   if (!center || center.govStatus !== "active" || center.status !== "open") return;
   openModal({
@@ -1185,7 +1184,7 @@ function startBooking(centerId, center) {
         // what actually prevents a duplicate active token.
         const existing = await getDoc(doc(db, "tokens", uid));
         if (existing.exists() && existing.data().status === "waiting") {
-          showToast("आपके पास पहले से एक सक्रिय टोकन है।");
+          showToast(t("active_token_exists"));
           return;
         }
         // Re-read the center fresh so we don't trust a possibly-stale
@@ -1210,7 +1209,7 @@ function startBooking(centerId, center) {
         });
         showToast(t("saved")); store.farmerTab = "token"; mount();
       } catch (e) {
-        showToast(e.code === "permission-denied" ? "आपके पास पहले से एक सक्रिय टोकन है।" : t("network_error"));
+        showToast(e.code === "permission-denied" ? t("active_token_exists") : t("network_error"));
       }
     },
   });
