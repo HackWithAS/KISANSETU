@@ -163,7 +163,11 @@ service cloud.firestore {
       // access here (see /purchases and /localPurchases for how a center
       // instead sees just the farmer contact tied to its own queue/purchase).
       allow get: if signedIn() && (request.auth.uid == uid || isActiveGov());
-      allow list: if isActiveGov();
+      // Government lists the full directory (Government Farmers section).
+      // A Center gets ONLY a narrow, single-result lookup (limit<=1) so it
+      // can link a real farmer to an in-person "Add Local Purchase" entry
+      // by exact mobile number — never a browsable/bulk farmer directory.
+      allow list: if isActiveGov() || (isActiveCenter() && request.query.limit <= 1);
 
       allow create: if signedIn()
         && request.auth.uid == uid
@@ -192,7 +196,18 @@ service cloud.firestore {
         && request.resource.data.createdAt == request.time
         && request.resource.data.updatedAt == request.time;
 
-      allow update, delete: if false;
+      // A farmer may update ONLY their own location (used to compute the
+      // real Haversine distance to a center). Sharing location is never
+      // required for any other farmer feature — this is the only field
+      // this rule allows to change, nothing else about the profile.
+      allow update: if isActiveFarmer()
+        && request.auth.uid == uid
+        && onlyChanged(['latitude', 'longitude', 'updatedAt'])
+        && (request.resource.data.latitude is number || request.resource.data.latitude == null)
+        && (request.resource.data.longitude is number || request.resource.data.longitude == null)
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
     }
 
     match /centers/{centerId} {
@@ -250,9 +265,11 @@ service cloud.firestore {
         ])
         && request.resource.data.keys().hasOnly([
           'centerId','centerName','centerCode','registeredMobile','address','country','state','stateCode',
-          'district','districtCode','block','blockCode','village','villageCode',
+          'district','districtCode','block','blockCode','village','villageCode','latitude','longitude',
           'capacity','counters','acceptedCrops','govStatus','status','createdAt'
-        ]);
+        ])
+        && (!('latitude' in request.resource.data) || request.resource.data.latitude is number || request.resource.data.latitude == null)
+        && (!('longitude' in request.resource.data) || request.resource.data.longitude is number || request.resource.data.longitude == null);
 
       // Center operators control only their operational status, counter
       // count and the published queue summary, and only while Government
@@ -295,6 +312,14 @@ service cloud.firestore {
           (request.resource.data.govStatus == 'inactive' && request.resource.data.status == 'closed')
           || (request.resource.data.govStatus == 'active' && request.resource.data.status == resource.data.status)
         );
+
+      // Government may change ONLY the Government-set capacity, on its own,
+      // secure path — a Center's update rule above never includes
+      // 'capacity' in its onlyChanged() set, so a Center can never write it.
+      allow update: if isActiveGov()
+        && onlyChanged(['capacity'])
+        && request.resource.data.capacity is int
+        && request.resource.data.capacity >= 0;
 
       allow delete: if false;
     }
@@ -348,8 +373,14 @@ service cloud.firestore {
       // on resource.data.status, is what sidesteps that limitation
       // instead of requiring a transaction.
       function validBooking() {
+        let fm = get(farmerPath(request.auth.uid)).data;
         return request.resource.data.farmerId == request.auth.uid
           && request.resource.data.farmerName == caller().name
+          // Farmer contact carried onto the token so the owning Center can
+          // show it in its queue — pinned to the farmer's own profile, never
+          // typed on this screen, and never usable as farmer-directory access.
+          && request.resource.data.farmerMobile == fm.mobile
+          && (!('farmerEmail' in request.resource.data) || request.resource.data.farmerEmail == fm.get('email', ''))
           && request.resource.data.status == 'waiting'
           && request.resource.data.centerId is string
           && get(centerPath(request.resource.data.centerId)).data.govStatus == 'active'
@@ -373,10 +404,10 @@ service cloud.firestore {
           && request.resource.data.declaredCrops.keys().hasOnly(
                get(centerPath(request.resource.data.centerId)).data.acceptedCrops)
           && request.resource.data.keys().hasAll([
-            'farmerId','farmerName','centerId','status','bookingId','declaredCrops','createdAt','updatedAt'
+            'farmerId','farmerName','farmerMobile','centerId','status','bookingId','declaredCrops','createdAt','updatedAt'
           ])
           && request.resource.data.keys().hasOnly([
-            'farmerId','farmerName','centerId','status','bookingId','declaredCrops','createdAt','updatedAt'
+            'farmerId','farmerName','farmerMobile','farmerEmail','centerId','status','bookingId','declaredCrops','createdAt','updatedAt'
           ]);
       }
 
@@ -569,10 +600,20 @@ service cloud.firestore {
           && me.centerId is string
           && ce.govStatus == 'active'
           && d.keys().hasAll(['farmerName','centerId','centerName','crop','quantity','rate','amount','paymentStatus','purchaseDate','createdAt'])
-          && d.keys().hasOnly(['farmerId','farmerName','centerId','centerName','crop','quantity','rate','amount','paymentStatus','purchaseDate','createdAt'])
+          && d.keys().hasOnly(['farmerId','farmerName','farmerMobile','centerId','centerName','crop','quantity','rate','amount','paymentStatus','purchaseDate','createdAt'])
           && d.centerId == me.centerId
           && d.centerName == ce.centerName
           && d.farmerName is string && d.farmerName.size() > 0 && d.farmerName.size() <= 160
+          // Optional real-farmer link: when present, farmerId must be a real
+          // farmer document and farmerMobile must match it exactly — this is
+          // a single get() on a uid the center already typed a matching
+          // mobile number for, never a directory browse.
+          && (!('farmerId' in d) || (
+            d.farmerId is string && d.farmerId.size() > 0
+            && 'farmerMobile' in d
+            && d.farmerMobile == get(farmerPath(d.farmerId)).data.mobile
+          ))
+          && (!('farmerMobile' in d) || d.farmerMobile.matches('^[6-9][0-9]{9}$'))
           && d.crop is string && d.crop.size() > 0 && d.crop.size() <= 60
           && d.crop in ce.acceptedCrops
           && d.quantity is number && d.quantity > 0 && d.quantity <= 5000
@@ -629,6 +670,70 @@ service cloud.firestore {
       allow list: if signedIn() && resource.data.userId == request.auth.uid;
       allow create: if signedIn() && validServedNotification(notificationId);
       allow update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Payment / issue requests a farmer raises against one of their own
+    // real purchases (purchases/{purchaseId}, the token-linked collection
+    // above). Routed either to the Center that made the purchase or to
+    // Government. Spark-plan: onSnapshot() gives both dashboards a live
+    // alert with no Cloud Function / polling needed.
+    // ------------------------------------------------------------------
+    match /paymentRequests/{id} {
+      function validPaymentRequest() {
+        let d = request.resource.data;
+        let p = get(purchasePath(d.purchaseId)).data;
+        let fm = get(farmerPath(request.auth.uid)).data;
+        return isActiveFarmer()
+          && d.keys().hasAll([
+            'farmerId','farmerName','farmerMobile','centerId','centerName','issueType','description',
+            'purchaseId','crop','quantity','amount','requestedTo','status','createdAt'
+          ])
+          && d.keys().hasOnly([
+            'farmerId','farmerName','farmerMobile','centerId','centerName','issueType','description',
+            'purchaseId','crop','quantity','amount','requestedTo','status','createdAt'
+          ])
+          && d.farmerId == request.auth.uid
+          && d.farmerName == fm.name
+          && d.farmerMobile == fm.mobile
+          // The request must reference a real purchase that belongs to this
+          // farmer; crop/quantity/amount/center are copied from it, not typed.
+          && d.purchaseId is string
+          && p.farmerId == request.auth.uid
+          && d.centerId == p.centerId
+          && d.centerName == p.centerName
+          && d.crop == p.crop
+          && d.quantity == p.quantity
+          && d.amount == p.amount
+          && d.issueType in ['payment_delayed', 'incorrect_amount', 'quantity_issue', 'other']
+          && d.description is string && d.description.size() <= 500
+          && d.requestedTo in ['center', 'gov']
+          && d.status == 'open'
+          && d.createdAt == request.time;
+      }
+
+      allow get: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
+        || (isActiveCenter() && resource.data.requestedTo == 'center' && resource.data.centerId == callerCenterId())
+        || isActiveGov();
+
+      allow list: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
+        || (isActiveCenter() && resource.data.requestedTo == 'center' && resource.data.centerId == callerCenterId())
+        || isActiveGov();
+
+      allow create: if signedIn() && validPaymentRequest();
+
+      // The Center (only when the request was routed to it) or Government
+      // may move the status forward — nothing else on the document changes.
+      allow update: if (
+        (isActiveCenter() && resource.data.requestedTo == 'center' && resource.data.centerId == callerCenterId()
+          && onlyChanged(['status'])
+          && request.resource.data.status in ['acknowledged', 'under_review', 'resolved'])
+        || (isActiveGov()
+          && onlyChanged(['status'])
+          && request.resource.data.status in ['acknowledged', 'under_review', 'resolved'])
+      );
+
+      allow delete: if false;
     }
 
     match /rateLimits/{key} {

@@ -2,23 +2,14 @@ import { auth, db, getAppCheckHeaders, getSecondaryAuth } from "./firebase-confi
 import {
   createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged,
   signOut, updatePassword, reauthenticateWithCredential, EmailAuthProvider,
-  RecaptchaVerifier, signInWithPhoneNumber, GoogleAuthProvider, signInWithPopup
+  sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
-  doc, getDoc, setDoc, updateDoc, collection, query, where, orderBy,
+  doc, getDoc, getDocs, setDoc, updateDoc, collection, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, Timestamp, writeBatch, getCountFromServer
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import * as locationAdapter from "./data/locationAdapter.js";
 import * as cropsAdapter from "./data/cropsAdapter.js";
-
-/* A server endpoint is required for every operation that needs the Admin
-   SDK or must not trust anything the browser says about itself: creating
-   a center's login, registering a center, activating/deactivating a
-   center, and resetting a password after phone verification. (Recording a
-   purchase and marking a no-show no longer use a server endpoint — see
-   centerMarkServed / centerMarkNoShow, which write to Firestore directly and
-   are policed by firestore.rules on the Spark plan.) See functions/index.js and SECURITY.md. */
-const FUNCTIONS_BASE_URL = window.KS_FUNCTIONS_BASE_URL || "https://us-central1-kishan-setu-fd406.cloudfunctions.net";
 
 /* Both data adapters fetch their JSON once, in parallel, right away.
    Local static files resolve near-instantly, but if a screen that needs
@@ -169,6 +160,34 @@ const I18N = {
     demo_register_preview_body: "असली डैशबोर्ड में, यह पूरा फ़ॉर्म खोलता है — केंद्र का नाम, पता, क्षमता, स्वीकृत फ़सलें, एडमिन विवरण — और तुरंत एक लॉगिन बना देता है। डेमो मोड में यह क्रिया अक्षम है ताकि कोई नकली डेटा असली सिस्टम में न जाए।",
     add_local_purchase: "स्थानीय खरीद जोड़ें", lp_farmer: "किसान का नाम", lp_select_crop: "फ़सल चुनें",
     gov_capacity_label: "सरकारी क्षमता", quintal_per_day: "क्विंटल/दिन",
+
+    view_details: "विवरण देखें", close: "बंद करें", not_available: "उपलब्ध नहीं",
+    email: "ईमेल", email_optional: "ईमेल (वैकल्पिक)", invalid_email: "सही ईमेल दर्ज करें",
+    nav_farmers: "किसान", registered_farmers: "पंजीकृत किसान",
+    center_details_title: "केंद्र विवरण", farmer_details_title: "किसान विवरण",
+    contact_person: "संपर्क व्यक्ति", contact_number: "संपर्क नंबर", registration_date: "पंजीकरण तिथि",
+    current_status: "वर्तमान स्थिति", government_status: "सरकारी स्थिति", queue_info: "कतार/टोकन जानकारी",
+    address_field: "पता", block_field: "ब्लॉक", village_field: "गाँव",
+    no_farmers_found: "कोई किसान पंजीकृत नहीं है",
+    distance_unavailable: "दूरी उपलब्ध नहीं",
+    share_location: "मेरा स्थान साझा करें", update_location: "स्थान अपडेट करें",
+    location_updated: "स्थान अपडेट हो गया", location_denied: "स्थान की अनुमति नहीं मिली",
+    my_profile: "मेरी प्रोफ़ाइल",
+    edit_capacity: "क्षमता बदलें", save_capacity: "क्षमता सहेजें", capacity_updated: "क्षमता अपडेट हो गई",
+    lp_search_mobile: "किसान का मोबाइल नंबर (वैकल्पिक)", lp_search_hint: "पंजीकृत किसान से जोड़ने के लिए मोबाइल नंबर दर्ज करें",
+    lp_farmer_linked: "पंजीकृत किसान से जोड़ा गया", lp_farmer_not_found: "इस नंबर से कोई पंजीकृत किसान नहीं मिला — नाम मैन्युअल रहेगा",
+    payment_issue: "भुगतान समस्या", report_issue: "समस्या दर्ज करें",
+    issue_type: "समस्या प्रकार", issue_payment_delayed: "भुगतान में देरी", issue_incorrect_amount: "गलत राशि",
+    issue_quantity_issue: "मात्रा में समस्या", issue_other: "अन्य",
+    issue_description: "विवरण (वैकल्पिक)", issue_route_to: "किसे भेजें", route_center: "केंद्र", route_gov: "शासन",
+    request_sent: "आपकी शिकायत भेज दी गई है", nav_payments: "भुगतान शिकायतें",
+    no_payment_requests: "कोई भुगतान शिकायत नहीं", status_open: "खुली", status_acknowledged: "स्वीकार की गई",
+    status_under_review: "समीक्षा में", status_resolved: "हल हो गई",
+    acknowledge: "स्वीकार करें", under_review_action: "समीक्षा में डालें", resolve: "हल करें",
+    reset_via_username: "उपयोगकर्ता नाम से रीसेट करें", reset_via_email: "ईमेल से रीसेट करें",
+    reset_email_sent: "यदि यह खाता मौजूद है, तो पंजीकृत ईमेल पर पासवर्ड रीसेट लिंक भेज दिया गया है।",
+    reset_email_note: "ध्यान दें: यह लिंक केवल उसी ईमेल पर जाता है जो इस खाते के लिए Firebase में दर्ज है (जैसे Google से साइन इन करने वाला किसान खाता)।",
+    send_reset_link: "रीसेट लिंक भेजें",
   },
   en: {
     brand: "Kisan Setu", tagline: "Connecting farmers and procurement centers, simply.",
@@ -271,6 +290,34 @@ const I18N = {
     demo_register_preview_body: "In the real dashboard, this opens the full form — center name, address, capacity, accepted crops, admin details — and creates a working login instantly. It's disabled here in Demo Mode so no fake data ever touches the real system.",
     add_local_purchase: "Add Local Purchase", lp_farmer: "Farmer name", lp_select_crop: "Select crop",
     gov_capacity_label: "Government capacity", quintal_per_day: "quintal/day",
+
+    view_details: "View Details", close: "Close", not_available: "Not Available",
+    email: "Email", email_optional: "Email (optional)", invalid_email: "Enter a valid email",
+    nav_farmers: "Farmers", registered_farmers: "Registered farmers",
+    center_details_title: "Center Details", farmer_details_title: "Farmer Details",
+    contact_person: "Contact person", contact_number: "Contact number", registration_date: "Registration date",
+    current_status: "Current status", government_status: "Government status", queue_info: "Queue / token info",
+    address_field: "Address", block_field: "Block", village_field: "Village",
+    no_farmers_found: "No farmers registered yet",
+    distance_unavailable: "Distance unavailable",
+    share_location: "Share my location", update_location: "Update location",
+    location_updated: "Location updated", location_denied: "Location permission denied",
+    my_profile: "My Profile",
+    edit_capacity: "Edit capacity", save_capacity: "Save capacity", capacity_updated: "Capacity updated",
+    lp_search_mobile: "Farmer's mobile number (optional)", lp_search_hint: "Enter a mobile number to link a registered farmer",
+    lp_farmer_linked: "Linked to registered farmer", lp_farmer_not_found: "No registered farmer found for this number — name stays manual",
+    payment_issue: "Payment Issue", report_issue: "Report issue",
+    issue_type: "Issue type", issue_payment_delayed: "Payment delayed", issue_incorrect_amount: "Incorrect amount",
+    issue_quantity_issue: "Quantity issue", issue_other: "Other",
+    issue_description: "Description (optional)", issue_route_to: "Send to", route_center: "Center", route_gov: "Government",
+    request_sent: "Your issue has been sent", nav_payments: "Payment Issues",
+    no_payment_requests: "No payment issues", status_open: "Open", status_acknowledged: "Acknowledged",
+    status_under_review: "Under review", status_resolved: "Resolved",
+    acknowledge: "Acknowledge", under_review_action: "Mark under review", resolve: "Resolve",
+    reset_via_username: "Reset using Username", reset_via_email: "Reset using Email",
+    reset_email_sent: "If an account exists, a password reset link has been sent to its registered email.",
+    reset_email_note: "Note: this link only reaches the exact email registered in Firebase for this account (for example, a farmer account signed in with Google).",
+    send_reset_link: "Send reset link",
   },
 };
 function t(key) { return (I18N[store.lang] && I18N[store.lang][key]) || I18N.hi[key] || key; }
@@ -296,13 +343,14 @@ const store = {
   googleData: { crops: [] },
   centerRegisterData: { crops: [] },
   forgotStep: "identify",
+  forgotMethod: "username",
+  forgotRole: "farmer",
   forgotData: {},
   captcha: { a: 1, b: 1 },
   sortBy: "nearest",
   draft: null,
   forcePasswordChange: false,
   _unsub: {},
-  _confirmResult: null,
   _opBusy: new Set(),
   demoActive: false,
   demoRole: null,
@@ -354,14 +402,15 @@ function paintModal() {
   const root = document.getElementById("modal-root");
   if (!store.modal) { root.innerHTML = ""; return; }
   const m = store.modal;
-  root.innerHTML = `<div class="modal-backdrop" data-close="1"><div class="modal" role="dialog" aria-modal="true">
-    <h3>${m.title}</h3><p class="muted">${m.body}</p>
+  root.innerHTML = `<div class="modal-backdrop" data-close="1"><div class="modal ${m.wide ? "wide" : ""}" role="dialog" aria-modal="true">
+    <h3>${m.title}</h3><div class="muted modal-body">${m.body}</div>
     <div class="modal-actions">
-      <button class="btn ${m.danger ? "" : "ghost"}" id="modal-cancel">${m.cancelText || t("cancel")}</button>
+      ${m.hideCancel ? "" : `<button class="btn ${m.danger ? "" : "ghost"}" id="modal-cancel">${m.cancelText || t("cancel")}</button>`}
       <button class="btn ${m.danger ? "danger" : ""}" id="modal-confirm">${m.confirmText || t("confirm")}</button>
     </div></div></div>`;
   root.querySelector(".modal-backdrop").addEventListener("click", (e) => { if (e.target.dataset.close) closeModal(); });
-  document.getElementById("modal-cancel").addEventListener("click", closeModal);
+  const cancelBtn = document.getElementById("modal-cancel");
+  if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
   document.getElementById("modal-confirm").addEventListener("click", () => {
     const data = m.getData ? m.getData(root) : undefined;
     // Optional: modals that pass `validate` keep themselves open (and show
@@ -426,6 +475,31 @@ function cropName(code) {
   } catch (_) { /* fall back to the raw code below */ }
   return String(code);
 }
+/* Real great-circle distance between two lat/lng points, in km, rounded to
+   1 decimal. Returns null if either point is missing — the UI must then
+   show "Distance unavailable", never a fake number. No paid Maps API. */
+function haversineKm(lat1, lon1, lat2, lon2) {
+  if (![lat1, lon1, lat2, lon2].every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+  const R = 6371; // Earth's mean radius, km
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c * 10) / 10;
+}
+/* Best-effort browser geolocation. Always resolves (never rejects) so a
+   caller can just `await` it and treat null as "not available/denied" —
+   location is optional everywhere it's used, never required to proceed. */
+function tryGetLocation() {
+  return new Promise((resolve) => {
+    if (!("geolocation" in navigator)) { resolve(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+    );
+  });
+}
 /* Positive number, at most 2 decimals, <= max. Returns the number or null. */
 function parsePositive2dp(raw, max) {
   const s = String(raw == null ? "" : raw).trim().replace(",", ".");
@@ -464,21 +538,6 @@ function simpleErrorKey(e) {
 function farmerEmail(username) { return `${username.trim().toLowerCase()}@f.kisansetu.app`; }
 function centerEmail(centerId, adminId) { return `${centerId.trim().toLowerCase()}.${adminId.trim().toLowerCase()}@c.kisansetu.app`; }
 function govEmail(officialId) { return `${officialId.trim().toLowerCase()}@g.kisansetu.app`; }
-
-async function callFunction(name, payload) {
-  if (!FUNCTIONS_BASE_URL) throw new Error("functions-not-configured");
-  // createCenterAccount and resetPasswordWithPhone both verify this token
-  // server-side with the Admin SDK before doing anything privileged.
-  const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
-  const appCheckHeaders = await getAppCheckHeaders();
-  const res = await fetch(`${FUNCTIONS_BASE_URL}/${name}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...appCheckHeaders, ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}) },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "request-failed");
-  return res.json();
-}
 
 // Set right before each of the three sign-in calls below, and read once
 // here. This is what makes "Government credentials only work on the
@@ -713,6 +772,34 @@ function locationStepHtml(d) {
   }
   return html;
 }
+/* Optional "share current location" control — never blocks the form.
+   Writes plain numbers onto the given data object; the caller re-paints
+   (or not) as it likes. Browser geolocation permission is asked for only
+   when this button is pressed, never on page load. */
+function locationShareHtml(d) {
+  const has = typeof d.latitude === "number" && typeof d.longitude === "number";
+  return `<div class="field">
+    <button type="button" class="btn ghost" id="loc-share-btn">${ic("mapPin", 16)}${t("share_location")}</button>
+    <p class="tiny muted mt-1" id="loc-share-status">${has ? `${t("location_updated")} (${d.latitude.toFixed(4)}, ${d.longitude.toFixed(4)})` : ""}</p>
+  </div>`;
+}
+function wireLocationShareButton(d, onDone) {
+  const btn = document.getElementById("loc-share-btn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    const loc = await tryGetLocation();
+    btn.disabled = false;
+    const status = document.getElementById("loc-share-status");
+    if (loc) {
+      d.latitude = loc.latitude; d.longitude = loc.longitude;
+      if (status) status.textContent = `${t("location_updated")} (${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)})`;
+    } else if (status) {
+      status.textContent = t("location_denied");
+    }
+    if (onDone) onDone(loc);
+  });
+}
 function wireLocationSelects(root, onChange) {
   root.querySelectorAll("[data-loc-level]").forEach((sel) => {
     sel.addEventListener("change", () => onChange(sel.dataset.locLevel, sel.value));
@@ -740,10 +827,12 @@ function signupNext(e) {
   const d = store.signupData;
   if (store.signupStep === 1) {
     d.fullName = form.fullName.value.trim(); d.mobile = form.mobile.value.trim();
+    d.email = form.email.value.trim();
     d.username = form.username.value.trim(); d.password = form.password.value; d.confirmPassword = form.confirmPassword.value;
     let bad = false;
     if (!d.fullName) { setFieldError(form, "fullName", t("field_required")); bad = true; }
     if (!/^[6-9]\d{9}$/.test(d.mobile)) { setFieldError(form, "mobile", t("field_required")); bad = true; }
+    if (d.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email)) { setFieldError(form, "email", t("invalid_email")); bad = true; }
     if (!/^[a-z0-9._-]{3,30}$/.test(d.username.toLowerCase())) { setFieldError(form, "username", t("field_required")); bad = true; }
     if (d.password.length < 8) { setFieldError(form, "password", t("weak_password")); bad = true; }
     if (d.password !== d.confirmPassword) { setFieldError(form, "confirmPassword", t("passwords_no_match")); bad = true; }
@@ -792,6 +881,7 @@ async function submitSignup(form) {
     const loc = locationPayload(d);
     const farmerData = {
       name: d.fullName, username: d.username.toLowerCase(), mobile: d.mobile,
+      ...(d.email ? { email: d.email } : {}),
       ...loc, mainCrops: d.crops || [], createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     };
     await setDoc(doc(db, "farmers", cred.user.uid), farmerData);
@@ -807,65 +897,61 @@ async function submitSignup(form) {
   }
 }
 
-/* ---- forgot password (phone OTP, then a server-side reset) ---- */
-function ensureRecaptcha() {
-  if (window._recaptchaVerifier) return window._recaptchaVerifier;
-  window._recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-slot", { size: "invisible" });
-  return window._recaptchaVerifier;
+/* ---- forgot password: Firebase Auth's own secure reset email, no Cloud
+   Function, no Blaze plan, and never a fake "OTP sent" claim.
+   IMPORTANT, please read: a password-reset email can only ever reach the
+   exact address that is this account's Firebase Auth login identifier.
+   Farmer/Center/Government accounts created through this app sign in
+   with a deterministic *synthetic* address (username@f.kisansetu.app,
+   centerId.adminId@c.kisansetu.app, officialId@g.kisansetu.app) — never a
+   real inbox — so "Reset using Username/ID" below computes that same
+   address and asks Firebase to email it, but nobody can read that inbox.
+   "Reset using Email" only works for an account whose Auth email really
+   is a personal inbox — in this app, that is a farmer who signed up with
+   "Continue with Google". This is a real limitation of the current
+   username/synthetic-email login design, not something rules or a Cloud
+   Function can work around; it's called out again in reset_email_note. */
+function forgotIdentifierEmail(role, d) {
+  if (role === "farmer") return d.username ? farmerEmail(d.username) : null;
+  if (role === "center") return d.centerId && d.adminId ? centerEmail(d.centerId, d.adminId) : null;
+  return d.officialId ? govEmail(d.officialId) : null;
 }
-async function sendForgotOtp(mobile) {
-  if (window._recaptchaVerifier) {
-    try { window._recaptchaVerifier.clear(); } catch (_) {}
-    window._recaptchaVerifier = null;
+async function forgotSubmit(e) {
+  e.preventDefault();
+  const form = e.target;
+  clearFormErrors(form);
+  const method = store.forgotMethod || "username";
+  const d = store.forgotData;
+  let email = null;
+  if (method === "email") {
+    email = form.email.value.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setFieldError(form, "email", t("invalid_email")); return; }
+  } else {
+    const role = store.forgotRole || "farmer";
+    if (role === "farmer") { d.username = form.username.value.trim(); if (!d.username) { setFieldError(form, "username", t("field_required")); return; } }
+    else if (role === "center") {
+      d.centerId = form.centerId.value.trim(); d.adminId = form.adminId.value.trim();
+      if (!d.centerId || !d.adminId) { showAuthError(form, t("field_required")); return; }
+    } else {
+      d.officialId = form.officialId.value.trim();
+      if (!d.officialId) { setFieldError(form, "officialId", t("field_required")); return; }
+    }
+    email = forgotIdentifierEmail(role, d);
   }
-  const verifier = ensureRecaptcha();
-  store._confirmResult = await signInWithPhoneNumber(auth, "+91" + mobile, verifier);
-  store.forgotStep = "otp";
+  setBtnLoading(form, true);
+  // A generic outcome regardless of whether the account exists — this is
+  // standard, honest practice (it never claims an OTP was sent, and never
+  // discloses which usernames/emails have real accounts).
+  try { await sendPasswordResetEmail(auth, email); } catch (_) { /* still show the generic message below */ }
+  setBtnLoading(form, false);
+  store.forgotStep = "sent";
   paintScreen();
 }
-async function forgotSendOtp(e) {
-  e.preventDefault();
-  const form = e.target;
-  clearFormErrors(form);
-  const mobile = form.mobile.value.trim();
-  if (!/^[6-9]\d{9}$/.test(mobile)) { setFieldError(form, "mobile", t("field_required")); return; }
-  store.forgotData.mobile = mobile;
-  setBtnLoading(form, true);
-  try { await sendForgotOtp(mobile); }
-  catch (_) { setBtnLoading(form, false); showAuthError(form, t("network_error")); }
+function exitForgot() {
+  store.screen = "login"; store.forgotStep = "identify"; store.forgotMethod = "username";
+  store.forgotRole = "farmer"; store.forgotData = {};
+  paintScreen();
 }
-async function forgotVerifyOtp(otp) {
-  try {
-    const result = await store._confirmResult.confirm(otp);
-    const idToken = await result.user.getIdToken();
-    store.forgotData.idToken = idToken;
-    await signOut(auth);
-    store.forgotStep = "reset";
-    paintScreen();
-  } catch (err) {
-    showToast(t("otp_invalid"));
-  }
-}
-async function forgotResetPassword(e) {
-  e.preventDefault();
-  const form = e.target;
-  clearFormErrors(form);
-  const p1 = form.newPassword.value, p2 = form.confirmPassword.value;
-  let bad = false;
-  if (p1.length < 8) { setFieldError(form, "newPassword", t("weak_password")); bad = true; }
-  if (p1 !== p2) { setFieldError(form, "confirmPassword", t("passwords_no_match")); bad = true; }
-  if (bad) return;
-  setBtnLoading(form, true);
-  try {
-    await callFunction("resetPasswordWithPhone", { idToken: store.forgotData.idToken, newPassword: p1 });
-    store.forgotStep = "done";
-    paintScreen();
-  } catch (err) {
-    setBtnLoading(form, false);
-    showAuthError(form, "यह सुविधा सर्वर सेटअप (functions/index.js) जोड़े जाने पर सक्रिय होगी।");
-  }
-}
-function exitForgot() { store.screen = "login"; store.forgotStep = "identify"; store.forgotData = {}; paintScreen(); }
 
 /* ============================== form helpers ============================== */
 function clearFormErrors(form) {
@@ -1021,8 +1107,7 @@ function screenLogin() {
         </div>
       </div>
     </div>
-  </div>
-  <div id="recaptcha-slot"></div>`;
+  </div>`;
 }
 function roleCard(key, icon, label) {
   return `<button type="button" class="role-card" data-role-tab="${key}" aria-pressed="${store.authTab === key}">${ic(icon, 18)}<span>${label}</span></button>`;
@@ -1048,11 +1133,12 @@ function screenSignup() {
   if (store.signupStep === 1) {
     fields = `<div class="field"><label for="su-fullname">${t("full_name")}</label><input id="su-fullname" name="fullName" autocomplete="name" value="${esc(d.fullName || "")}" required></div>
       <div class="field"><label for="su-mobile">${t("mobile")}</label><input id="su-mobile" name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" value="${esc(d.mobile || "")}" required></div>
+      <div class="field"><label for="su-email">${t("email_optional")}</label><input id="su-email" name="email" type="email" autocomplete="email" value="${esc(d.email || "")}"></div>
       <div class="field"><label for="su-username">${t("username")}</label><input id="su-username" name="username" autocomplete="username" value="${esc(d.username || "")}" required></div>
       <div class="field"><label for="su-password">${t("password")}</label><input id="su-password" name="password" type="password" autocomplete="new-password" required></div>
       <div class="field"><label for="su-confirm">${t("confirm_password")}</label><input id="su-confirm" name="confirmPassword" type="password" autocomplete="new-password" required></div>`;
   } else if (store.signupStep === 2) {
-    fields = `<div id="location-fields">${locationStepHtml(d)}</div>`;
+    fields = `<div id="location-fields">${locationStepHtml(d)}</div>${locationShareHtml(d)}`;
   } else if (store.signupStep === 3) {
     fields = cropsStepHtml(d.crops || []);
   } else {
@@ -1137,7 +1223,7 @@ function screenGoogleComplete() {
   if (store.googleStep === 1) {
     fields = `<div class="field"><label for="gc-mobile">${t("mobile")}</label><input id="gc-mobile" name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" value="${esc(d.mobile || "")}" required></div>`;
   } else if (store.googleStep === 2) {
-    fields = `<div id="location-fields">${locationStepHtml(d)}</div>`;
+    fields = `<div id="location-fields">${locationStepHtml(d)}</div>${locationShareHtml(d)}`;
   } else {
     fields = cropsStepHtml(d.crops || []);
   }
@@ -1160,26 +1246,43 @@ function screenGoogleComplete() {
 
 function screenForgot() {
   const step = store.forgotStep;
+  const method = store.forgotMethod || "username";
+  const role = store.forgotRole || "farmer";
   let body = "";
-  if (step === "identify") {
-    body = `<p class="muted mt-1">${t("forgot_identify")}</p>
-      <form id="forgot-id-form" novalidate>
-        <div class="field"><label for="fg-mobile">${t("mobile")}</label><input id="fg-mobile" name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" required></div>
-        <button type="submit" class="btn block mt-2">${t("submit")}</button>
-      </form>`;
-  } else if (step === "otp") {
-    body = `<p class="muted mt-1">${t("otp_sent")} +91 ${esc(store.forgotData.mobile || "")}</p>
-      <div class="otp-row" id="otp-boxes">${Array.from({ length: 6 }).map((_, i) => `<input inputmode="numeric" maxlength="1" data-otp-index="${i}">`).join("")}</div>
-      <p class="otp-resend"><button type="button" class="link-btn" id="otp-resend">${t("resend_otp")}</button></p>`;
-  } else if (step === "reset") {
-    body = `<form id="reset-form" novalidate>
-      <div class="field"><label for="reset-newpw">${t("new_password")}</label><input id="reset-newpw" name="newPassword" type="password" autocomplete="new-password" required></div>
-      <div class="field"><label for="reset-confirmpw">${t("confirm_password")}</label><input id="reset-confirmpw" name="confirmPassword" type="password" autocomplete="new-password" required></div>
-      <button type="submit" class="btn block mt-2">${t("save")}</button>
-    </form>`;
-  } else {
-    body = `<div class="alert ok">${ic("checkCircle")}<span>${t("password_changed")}</span></div>
+  if (step === "sent") {
+    body = `<div class="alert ok">${ic("checkCircle")}<span>${t("reset_email_sent")}</span></div>
+      <p class="tiny muted mt-1">${t("reset_email_note")}</p>
       <button class="btn block mt-2" id="forgot-done">${t("sign_in")}</button>`;
+  } else {
+    const methodTabs = `<div class="segs" role="tablist">
+      <button type="button" data-reset-method="username" aria-current="${method === "username"}">${t("reset_via_username")}</button>
+      <button type="button" data-reset-method="email" aria-current="${method === "email"}">${t("reset_via_email")}</button>
+    </div>`;
+    let fields;
+    if (method === "email") {
+      fields = `<div class="field"><label for="fg-email">${t("email")}</label><input id="fg-email" name="email" type="email" autocomplete="email" required></div>`;
+    } else {
+      const roleTabs = `<div class="segs" role="tablist">
+        <button type="button" data-reset-role="farmer" aria-current="${role === "farmer"}">${t("role_farmer")}</button>
+        <button type="button" data-reset-role="center" aria-current="${role === "center"}">${t("role_center")}</button>
+        <button type="button" data-reset-role="gov" aria-current="${role === "gov"}">${t("role_gov")}</button>
+      </div>`;
+      let roleFields;
+      if (role === "farmer") {
+        roleFields = `<div class="field"><label for="fg-username">${t("username")}</label><input id="fg-username" name="username" autocomplete="username" required></div>`;
+      } else if (role === "center") {
+        roleFields = `<div class="field"><label for="fg-centerid">${t("center_id")}</label><input id="fg-centerid" name="centerId" required></div>
+          <div class="field"><label for="fg-adminid">${t("admin_id")}</label><input id="fg-adminid" name="adminId" required></div>`;
+      } else {
+        roleFields = `<div class="field"><label for="fg-officialid">${t("official_id")}</label><input id="fg-officialid" name="officialId" required></div>`;
+      }
+      fields = roleTabs + roleFields;
+    }
+    body = `${methodTabs}
+      <form id="forgot-reset-form" novalidate>
+        ${fields}
+        <button type="submit" class="btn block mt-2">${t("send_reset_link")}</button>
+      </form>`;
   }
   return `<div class="auth-panel" style="min-height:100vh">
     <div class="auth-card">
@@ -1188,8 +1291,7 @@ function screenForgot() {
       <div id="forgot-body">${body}</div>
       <p class="auth-switch"><button type="button" class="link-btn" id="forgot-exit">${t("sign_in")}</button></p>
     </div>
-  </div>
-  <div id="recaptcha-slot"></div>`;
+  </div>`;
 }
 
 function screenForcePassword() {
@@ -1215,8 +1317,8 @@ function roleLabel() {
 }
 function navItemsFor(role) {
   if (role === "farmer") return [["home", "mapPin", t("nav_home")], ["token", "ticket", t("nav_token")], ["history", "history", t("nav_history")], ["notif", "bell", t("nav_notif")], ["help", "help", t("nav_help")]];
-  if (role === "center") return [["queue", "users", t("nav_queue")], ["capacity", "settings", t("nav_capacity")], ["notif", "bell", t("nav_notif")], ["settings", "user", t("nav_settings")]];
-  return [["overview", "chart", t("nav_overview")], ["centers", "building", t("nav_centers")], ["register", "plus", t("nav_register")], ["alerts", "alert", t("nav_alerts")], ["settings", "settings", t("nav_settings")]];
+  if (role === "center") return [["queue", "users", t("nav_queue")], ["capacity", "settings", t("nav_capacity")], ["payments", "alert", t("nav_payments")], ["notif", "bell", t("nav_notif")], ["settings", "user", t("nav_settings")]];
+  return [["overview", "chart", t("nav_overview")], ["centers", "building", t("nav_centers")], ["farmers", "users", t("nav_farmers")], ["register", "plus", t("nav_register")], ["alerts", "alert", t("nav_alerts")], ["settings", "settings", t("nav_settings")]];
 }
 function currentTabKey() { return store.profile.role === "farmer" ? store.farmerTab : store.profile.role === "center" ? store.centerTab : store.govTab; }
 function setTabKey(k) {
@@ -1302,8 +1404,8 @@ function renderNearbyCenters(centers) {
   if (!centers.length) return emptyState("mapPin", t("no_centers_found"), t("no_centers_desc"));
   const sorted = [...centers].sort((a, b) => {
     if (store.sortBy === "wait") return (centerWaitMin(a) ?? 999) - (centerWaitMin(b) ?? 999);
-    if (store.sortBy === "token") return (b.tokenAvailability ?? 0) - (a.tokenAvailability ?? 0);
-    return (a.distanceKm ?? 999) - (b.distanceKm ?? 999);
+    if (store.sortBy === "token") return (b.tokenAvailability ?? -1) - (a.tokenAvailability ?? -1);
+    return (a.distanceKm ?? 999999) - (b.distanceKm ?? 999999);
   });
   return `<div class="sort-bar">
       <button data-sort="nearest" aria-pressed="${store.sortBy === "nearest"}">${t("sort_nearest")}</button>
@@ -1314,7 +1416,7 @@ function renderNearbyCenters(centers) {
       <div>
         <div class="name">${esc(c.centerName)}</div>
         <div class="meta-line">
-          ${c.distanceKm != null ? `<span>${c.distanceKm} ${t("km_away")}</span>` : ""}
+          <span>${c.distanceKm != null ? `${c.distanceKm} ${t("km_away")}` : t("distance_unavailable")}</span>
           <span>${t("queue_len")}: ${c.queueLength != null ? c.queueLength : "—"}</span>
           <span>${t("est_wait")}: ${centerWaitMin(c) != null ? centerWaitMin(c) + " min" : "—"}</span>
           <span class="badge ${c.govStatus !== "active" ? "red" : c.status === "open" ? "green" : "red"}">${c.govStatus !== "active" ? t("gov_inactive") : c.status === "open" ? t("open_now") : t("closed_now")}</span>
@@ -1324,16 +1426,61 @@ function renderNearbyCenters(centers) {
     </div>`).join("")}</div>`;
 }
 
+/* ---- Farmer profile card: the currently authenticated farmer's own real
+   Firestore profile (farmers/{uid}), never Demo data. Also offers to
+   (re)share location, which is what powers the real Haversine distance
+   below — sharing it is always optional. ---- */
+function farmerProfileCardHtml(farmer) {
+  if (!farmer) return `<div class="card muted tiny">${t("loading")}</div>`;
+  const row = (label, val) => `<div class="col"><span class="tiny muted">${label}</span><span>${val != null && val !== "" ? esc(val) : t("not_available")}</span></div>`;
+  const hasLoc = typeof farmer.latitude === "number" && typeof farmer.longitude === "number";
+  return `<div class="card" id="farmer-profile-card">
+    <div class="row gap-s"><h3 style="margin:0">${t("my_profile")}</h3><span class="spacer"></span>
+      <button class="btn ghost" id="farmer-update-location">${ic("mapPin", 16)}${t("update_location")}</button></div>
+    <div class="grid-2 mt-2">
+      ${row(t("full_name"), farmer.name)}
+      ${row(t("mobile"), farmer.mobile)}
+      ${row(t("email"), farmer.email)}
+      ${row(t("username"), farmer.username)}
+      ${row(t("state"), farmer.state)}
+      ${row(t("district"), farmer.district)}
+      ${row(t("block"), farmer.block)}
+      ${row(t("village"), farmer.village)}
+    </div>
+    <p class="tiny muted mt-1">${hasLoc ? `${t("location_updated")} (${farmer.latitude.toFixed(4)}, ${farmer.longitude.toFixed(4)})` : t("distance_unavailable")}</p>
+  </div>`;
+}
+
 function subscribeFarmerHome() {
-  const f = store.profile;
   getDoc(doc(db, "farmers", store.user.uid)).then((snap) => {
     const farmer = snap.exists() ? snap.data() : {};
     const q1 = query(collection(db, "centers"), where("districtCode", "==", farmer.districtCode), limit(20));
     store._unsub.centers = onSnapshot(q1, (qs) => {
-      const centers = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
-      paint("farmer-home", `<h2 class="section-title">${t("nearby_centers")}</h2>${renderNearbyCenters(centers)}`);
+      const centers = qs.docs.map((d) => {
+        const c = { id: d.id, ...d.data() };
+        c.distanceKm = (typeof farmer.latitude === "number" && typeof farmer.longitude === "number")
+          ? haversineKm(farmer.latitude, farmer.longitude, c.latitude, c.longitude)
+          : null;
+        // "Token availability" adapts to the real capacity/queue fields
+        // already on the center doc — no invented per-day token counter.
+        c.tokenAvailability = typeof c.capacity === "number" ? Math.max(0, c.capacity - (c.queueLength || 0)) : null;
+        return c;
+      });
+      paint("farmer-home", `${farmerProfileCardHtml(farmer)}<h2 class="section-title">${t("nearby_centers")}</h2>${renderNearbyCenters(centers)}`);
       document.querySelectorAll("[data-sort]").forEach((b) => b.addEventListener("click", () => { store.sortBy = b.dataset.sort; subscribeFarmerHome(); }));
       document.querySelectorAll("[data-book]").forEach((b) => b.addEventListener("click", () => startBooking(b.dataset.book, centers.find((c) => c.id === b.dataset.book))));
+      const locBtn = document.getElementById("farmer-update-location");
+      if (locBtn) locBtn.addEventListener("click", async () => {
+        locBtn.disabled = true;
+        const loc = await tryGetLocation();
+        locBtn.disabled = false;
+        if (!loc) { showToast(t("location_denied")); return; }
+        try {
+          await updateDoc(doc(db, "farmers", store.user.uid), { latitude: loc.latitude, longitude: loc.longitude, updatedAt: serverTimestamp() });
+          showToast(t("location_updated"));
+          subscribeFarmerHome();
+        } catch (_) { showToast(t("network_error")); }
+      });
     });
   });
 }
@@ -1455,6 +1602,9 @@ function startBooking(centerId, center) {
         // users/{uid} document, never from anything typed on this screen.
         const userSnap = await getDoc(doc(db, "users", uid));
         const farmerName = userSnap.exists() ? userSnap.data().name : "";
+        const farmerSnap = await getDoc(doc(db, "farmers", uid));
+        const farmerMobile = farmerSnap.exists() ? farmerSnap.data().mobile : "";
+        const farmerEmail = farmerSnap.exists() ? farmerSnap.data().email : null;
         // bookingId is unique per booking. tokens/{uid} is reused across
         // bookings, so purchase/notification document IDs are derived from
         // uid + bookingId — that is what lets each booking produce its own
@@ -1463,6 +1613,8 @@ function startBooking(centerId, center) {
         await setDoc(doc(db, "tokens", uid), {
           farmerId: uid,
           farmerName,
+          farmerMobile,
+          ...(farmerEmail ? { farmerEmail } : {}),
           centerId,
           status: "waiting",
           bookingId: newBookingId(),
@@ -1554,17 +1706,75 @@ function subscribeFarmerHistory() {
   const q1 = query(collection(db, "purchases"), where("farmerId", "==", store.user.uid), orderBy("purchaseDate", "desc"), limit(15));
   store._unsub.history = onSnapshot(q1, (qs) => {
     if (qs.empty) { paint("farmer-history", emptyState("history", t("no_history"), t("no_history_desc"))); return; }
-    paint("farmer-history", `<div class="card">${qs.docs.map((d) => {
-      const p = d.data();
-      const date = p.purchaseDate?.toDate ? p.purchaseDate.toDate().toLocaleDateString("hi-IN") : "";
+    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+    paint("farmer-history", `<div class="card">${rows.map((p) => {
+      const date = p.purchaseDate?.toDate ? p.purchaseDate.toDate().toLocaleDateString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
       return `<div class="history-item"><div>
-          <div class="row gap-s"><b>${esc(p.crop)}</b><span class="tiny muted">${date}</span></div>
+          <div class="row gap-s"><b>${esc(cropName(p.crop))}</b><span class="tiny muted">${date}</span></div>
           <div class="tiny muted">${esc(p.centerName || p.centerId)} · ${esc(p.quantity)} · ${t("grade")}: ${esc(p.grade || "—")}</div>
+          <button class="btn ghost tiny mt-1" data-report-issue="${p.id}">${t("payment_issue")}</button>
         </div>
         <div class="amount">${fmtINR(p.amount)}<div><span class="badge ${p.paymentStatus === "paid" ? "green" : p.paymentStatus === "processing" ? "gold" : "muted"}">${t(p.paymentStatus || "pending")}</span></div></div>
       </div>`;
     }).join("")}</div>`);
+    document.querySelectorAll("[data-report-issue]").forEach((b) => b.addEventListener("click", () => {
+      openPaymentIssueModal(rows.find((p) => p.id === b.dataset.reportIssue));
+    }));
   }, () => paint("farmer-history", emptyState("history", t("no_history"), t("no_history_desc"))));
+}
+
+/* Real payment/issue report against a real purchase the farmer actually
+   owns. Written to paymentRequests; firestore.rules re-validates every
+   copied field (crop/quantity/amount/center) against the purchase itself,
+   so nothing here can be spoofed from the browser. */
+async function openPaymentIssueModal(purchase) {
+  if (!purchase) return;
+  let farmer;
+  try {
+    const snap = await fsRead(doc(db, "farmers", store.user.uid));
+    farmer = snap.exists() ? snap.data() : null;
+  } catch (_) { showToast(t("network_error")); return; }
+  if (!farmer) { showToast(t("err_unknown")); return; }
+  openModal({
+    title: t("report_issue"),
+    body: `<p class="tiny muted">${esc(cropName(purchase.crop))} · ${esc(purchase.quantity)} ${t("quintal_short")} · ${fmtINR(purchase.amount)} · ${esc(purchase.centerName)}</p>
+      <div class="field"><label for="pi-type">${t("issue_type")}</label>
+        <select id="pi-type" required>
+          <option value="payment_delayed">${t("issue_payment_delayed")}</option>
+          <option value="incorrect_amount">${t("issue_incorrect_amount")}</option>
+          <option value="quantity_issue">${t("issue_quantity_issue")}</option>
+          <option value="other">${t("issue_other")}</option>
+        </select></div>
+      <div class="field"><label for="pi-route">${t("issue_route_to")}</label>
+        <select id="pi-route" required>
+          <option value="center">${t("route_center")}</option>
+          <option value="gov">${t("route_gov")}</option>
+        </select></div>
+      <div class="field"><label for="pi-desc">${t("issue_description")}</label><textarea id="pi-desc" rows="3" maxlength="500"></textarea></div>
+      <div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`,
+    confirmText: t("submit"), cancelText: t("cancel"),
+    getData: (root) => ({
+      issueType: root.querySelector("#pi-type").value,
+      requestedTo: root.querySelector("#pi-route").value,
+      description: root.querySelector("#pi-desc").value.trim().slice(0, 500),
+    }),
+    onConfirm: async (d) => {
+      try {
+        if (navigator.onLine === false) throw ksError("unavailable", "browser reports offline");
+        await withTimeout(setDoc(doc(collection(db, "paymentRequests")), {
+          farmerId: store.user.uid, farmerName: farmer.name, farmerMobile: farmer.mobile,
+          centerId: purchase.centerId, centerName: purchase.centerName,
+          issueType: d.issueType, description: d.description,
+          purchaseId: purchase.id, crop: purchase.crop, quantity: purchase.quantity, amount: purchase.amount,
+          requestedTo: d.requestedTo, status: "open", createdAt: serverTimestamp(),
+        }), OP_TIMEOUT_MS);
+        showToast(t("request_sent"));
+      } catch (e) {
+        console.error("[openPaymentIssueModal] error.code:", e && e.code, "| message:", e && e.message);
+        showToast(t(simpleErrorKey(e)));
+      }
+    },
+  });
 }
 
 function subscribeFarmerNotif() {
@@ -1588,6 +1798,7 @@ function centerBody() {
       <button class="btn gold" id="add-local-purchase">${ic("plus", 16)}${t("add_local_purchase")}</button></div>
     <div id="queue-sync"></div><div id="center-queue">${loadingBlock()}</div>`;
   if (tab === "capacity") return `<h2 class="section-title">${t("center_status")}</h2><div id="center-capacity">${loadingBlock()}</div>`;
+  if (tab === "payments") return `<h2 class="section-title">${t("nav_payments")}</h2><div id="center-payments">${loadingBlock()}</div>`;
   if (tab === "notif") return `<h2 class="section-title">${t("notifications")}</h2><div id="center-notif">${loadingBlock()}</div>`;
   if (tab === "settings") return centerSettings();
   return "";
@@ -1710,7 +1921,11 @@ function subscribeCenterQueue() {
       const tk = { id: d.id, ...d.data() };
       const cropsLine = declaredCropsSummary(tk.declaredCrops);
       return `<div class="queue-row"><span class="pos">${i + 1}</span>
-        <div class="col" style="flex:1"><b>${esc(tk.farmerName || tk.farmerId)}</b><span class="tiny muted">#${tk.id.slice(-6).toUpperCase()}</span>${cropsLine ? `<span class="tiny muted">${esc(cropsLine)}</span>` : ""}</div>
+        <div class="col" style="flex:1"><b>${esc(tk.farmerName || tk.farmerId)}</b><span class="tiny muted">#${tk.id.slice(-6).toUpperCase()}</span>
+          ${tk.farmerMobile ? `<span class="tiny muted">${ic("user", 12)} ${esc(tk.farmerMobile)}</span>` : ""}
+          ${tk.farmerEmail ? `<span class="tiny muted">${esc(tk.farmerEmail)}</span>` : ""}
+          ${cropsLine ? `<span class="tiny muted">${esc(cropsLine)}</span>` : ""}
+          <span class="tiny muted">${t("current_status")}: ${t("token_status_waiting")}</span></div>
         ${i === 0 ? `<button class="btn" data-serve="${tk.id}">${t("mark_served")}</button><button class="btn ghost" data-noshow="${tk.id}">${t("mark_noshow")}</button>` : ""}
       </div>`;
     }).join("")}</div>`);
@@ -1977,9 +2192,13 @@ async function openAddLocalPurchase() {
   if (!center) { showToast(t("err_unknown")); return; }
   const accepted = Array.isArray(center.acceptedCrops) ? center.acceptedCrops.filter((c) => typeof c === "string" && c) : [];
   const cropOptions = accepted.map((code) => `<option value="${esc(code)}">${esc(cropName(code))}</option>`).join("");
+  let linkedFarmer = null; // { id, name, mobile } once a real farmer is found by mobile
   openModal({
     title: t("add_local_purchase"),
     body: `
+      <div class="field"><label for="lp-mobile">${t("lp_search_mobile")}</label>
+        <input id="lp-mobile" name="lookupMobile" inputmode="numeric" maxlength="10"><p class="tiny muted">${t("lp_search_hint")}</p></div>
+      <p class="tiny" id="lp-link-status"></p>
       <div class="field"><label for="lp-farmer">${t("lp_farmer")}</label><input id="lp-farmer" name="farmerName" required></div>
       <div class="field"><label for="lp-crop">${t("crop")}</label>
         <select id="lp-crop" name="crop" required ${accepted.length ? "" : "disabled"}>
@@ -2002,6 +2221,38 @@ async function openAddLocalPurchase() {
         box.querySelector("#lp-amount").textContent = fmtINR(roundMoney((q || 0) * (r || 0)));
       };
       box.addEventListener("input", recompute);
+      let lookupTimer = null;
+      const mobileInput = box.querySelector("#lp-mobile");
+      const statusEl = box.querySelector("#lp-link-status");
+      const nameInput = box.querySelector("#lp-farmer");
+      mobileInput.addEventListener("input", () => {
+        linkedFarmer = null;
+        statusEl.textContent = "";
+        nameInput.readOnly = false;
+        clearTimeout(lookupTimer);
+        const mobile = mobileInput.value.trim();
+        if (!/^[6-9]\d{9}$/.test(mobile)) return;
+        lookupTimer = setTimeout(async () => {
+          try {
+            // Single-result query, exact mobile match — a narrow lookup the
+            // rules permit for a center (request.query.limit <= 1), never a
+            // browsable farmer directory.
+            const q1 = query(collection(db, "farmers"), where("mobile", "==", mobile), limit(1));
+            const qs = await withTimeout(getDocs(q1), OP_TIMEOUT_MS);
+            if (!qs.empty) {
+              const fd = qs.docs[0];
+              linkedFarmer = { id: fd.id, name: fd.data().name, mobile: fd.data().mobile };
+              nameInput.value = fd.data().name || "";
+              nameInput.readOnly = true;
+              statusEl.textContent = t("lp_farmer_linked");
+              statusEl.className = "tiny";
+            } else {
+              statusEl.textContent = t("lp_farmer_not_found");
+              statusEl.className = "tiny muted";
+            }
+          } catch (_) { /* lookup is best-effort; manual name entry still works */ }
+        }, 400);
+      });
     },
     getData: (root) => ({
       farmerName: root.querySelector("#lp-farmer").value.trim(),
@@ -2022,6 +2273,7 @@ async function openAddLocalPurchase() {
         const amount = roundMoney(d.quantity * d.rate);
         const ref = doc(collection(db, "localPurchases"));
         await withTimeout(setDoc(ref, {
+          ...(linkedFarmer ? { farmerId: linkedFarmer.id, farmerMobile: linkedFarmer.mobile } : {}),
           farmerName: d.farmerName,
           centerId: store.profile.centerId,
           centerName: center.centerName,
@@ -2078,11 +2330,51 @@ function subscribeCenterNotif() {
   }, () => paint("center-notif", emptyState("bell", t("no_notifications"), t("no_notifications_desc"))));
 }
 
+function paymentStatusBadge(status) {
+  const map = { open: ["red", "status_open"], acknowledged: ["gold", "status_acknowledged"], under_review: ["gold", "status_under_review"], resolved: ["green", "status_resolved"] };
+  const [cls, key] = map[status] || ["muted", "status_open"];
+  return `<span class="badge ${cls}">${t(key)}</span>`;
+}
+
+/* Center's real-time payment-issue inbox: onSnapshot() on paymentRequests
+   routed to this center only (rules pin requestedTo=='center' AND
+   centerId==this center — a center can never see another center's
+   requests, or ones routed to Government). */
+function subscribeCenterPayments() {
+  const q1 = query(collection(db, "paymentRequests"),
+    where("centerId", "==", store.profile.centerId), where("requestedTo", "==", "center"),
+    orderBy("createdAt", "desc"), limit(30));
+  store._unsub.centerPayments = onSnapshot(q1, (qs) => {
+    if (qs.empty) { paint("center-payments", emptyState("alert", t("no_payment_requests"), "")); return; }
+    paint("center-payments", `<div class="card">${qs.docs.map((d) => {
+      const r = { id: d.id, ...d.data() };
+      const date = r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
+      return `<div class="history-item" style="flex-direction:column;align-items:stretch">
+        <div class="row gap-s"><b>${esc(r.farmerName)}</b><span class="tiny muted">${esc(r.farmerMobile)}</span><span class="spacer"></span>${paymentStatusBadge(r.status)}</div>
+        <div class="tiny muted">${t("issue_type")}: ${t("issue_" + r.issueType)} · ${esc(cropName(r.crop))} · ${esc(r.quantity)} ${t("quintal_short")} · ${fmtINR(r.amount)}</div>
+        ${r.description ? `<div class="tiny">${esc(r.description)}</div>` : ""}
+        <div class="tiny muted">${date}</div>
+        <div class="row gap-s mt-1">
+          <button class="btn ghost" data-pay-status="${r.id}" data-status="acknowledged" ${r.status !== "open" ? "disabled" : ""}>${t("acknowledge")}</button>
+          <button class="btn ghost" data-pay-status="${r.id}" data-status="under_review" ${r.status === "resolved" ? "disabled" : ""}>${t("under_review_action")}</button>
+          <button class="btn" data-pay-status="${r.id}" data-status="resolved" ${r.status === "resolved" ? "disabled" : ""}>${t("resolve")}</button>
+        </div>
+      </div>`;
+    }).join("")}</div>`);
+    document.querySelectorAll("[data-pay-status]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await updateDoc(doc(db, "paymentRequests", b.dataset.payStatus), { status: b.dataset.status }); showToast(t("saved")); }
+      catch (_) { showToast(t("network_error")); b.disabled = false; }
+    }));
+  }, () => paint("center-payments", emptyState("alert", t("no_payment_requests"), "")));
+}
+
 /* ============================== government views ============================== */
 function govBody() {
   const tab = store.govTab;
   if (tab === "overview") return `<h2 class="section-title">${t("overview_title")}</h2><div id="gov-overview">${loadingBlock()}</div>`;
   if (tab === "centers") return `<h2 class="section-title">${t("nav_centers")}</h2><div id="gov-centers">${loadingBlock()}</div>`;
+  if (tab === "farmers") return `<h2 class="section-title">${t("registered_farmers")}</h2><div id="gov-farmers">${loadingBlock()}</div>`;
   if (tab === "register") return govRegisterForm();
   if (tab === "alerts") return `<h2 class="section-title">${t("alerts_title")}</h2><div id="gov-alerts">${loadingBlock()}</div>`;
   if (tab === "settings") return `<div class="alert">${ic("info")}<span>${t("gov_password_note")}</span></div>`;
@@ -2096,6 +2388,7 @@ function govRegisterForm() {
       <div class="field"><label for="gr-name">${t("center_name")}</label><input id="gr-name" name="centerName" value="${esc(d.centerName || "")}" required></div>
       <div class="field"><label for="gr-code">${t("center_code")}</label><input id="gr-code" name="centerCode" maxlength="8" placeholder="FTB" value="${esc(d.centerCode || "")}" required></div>
       <div id="center-location-fields">${locationStepHtml(d)}</div>
+      ${locationShareHtml(d)}
       <div class="field"><label for="gr-address">${t("village_address")}</label><input id="gr-address" name="address" placeholder="${t("village_address_hint")}" value="${esc(d.address || "")}"></div>
       <div class="grid-2">
         <div class="field"><label for="gr-capacity">${t("center_capacity")}</label><input id="gr-capacity" name="capacity" inputmode="numeric" value="${esc(d.capacity || "")}" required></div>
@@ -2157,12 +2450,16 @@ async function loadGovTodayPurchaseCount() {
 function subscribeGovCenters() {
   store._unsub.govCentersTable = onSnapshot(collection(db, "centers"), (qs) => {
     if (qs.empty) { paint("gov-centers", emptyState("building", t("no_centers_found"), t("no_centers_desc"))); return; }
+    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
     paint("gov-centers", `<div class="card table-wrap"><table><tr><th>${t("center_name")}</th><th>${t("district")}</th><th>${t("center_status")}</th><th>${t("counters")}</th><th></th></tr>
-      ${qs.docs.map((d) => { const c = d.data(); const active = c.govStatus === "active";
-        return `<tr><td><b>${esc(c.centerName)}</b><div class="tiny muted">${esc(c.centerId || d.id)}</div></td><td>${esc(c.district || "—")}</td>
+      ${rows.map((c) => { const active = c.govStatus === "active";
+        return `<tr><td><b>${esc(c.centerName)}</b><div class="tiny muted">${esc(c.centerId || c.id)}</div></td><td>${esc(c.district || "—")}</td>
         <td><span class="badge ${active ? "green" : "red"}">${active ? t("gov_active") : t("gov_inactive")}</span><div class="tiny muted mt-1">${c.status === "open" ? t("open_now") : t("closed_now")}</div></td>
         <td>${c.counters ?? "—"}</td>
-        <td><button class="btn ghost" data-toggle-center="${d.id}" data-gov-status="${active ? "active" : "inactive"}">${active ? t("deactivate") : t("activate")}</button></td></tr>`;
+        <td><div class="table-actions">
+          <button class="btn ghost" data-view-center="${c.id}">${t("view_details")}</button>
+          <button class="btn ghost" data-toggle-center="${c.id}" data-gov-status="${active ? "active" : "inactive"}">${active ? t("deactivate") : t("activate")}</button>
+        </div></td></tr>`;
       }).join("")}
     </table></div>`);
     document.querySelectorAll("[data-toggle-center]").forEach((b) => b.addEventListener("click", async () => {
@@ -2170,7 +2467,105 @@ function subscribeGovCenters() {
       try { await govToggleCenterStatus(b.dataset.toggleCenter, b.dataset.govStatus); }
       finally { b.disabled = false; }
     }));
+    document.querySelectorAll("[data-view-center]").forEach((b) => b.addEventListener("click", () => {
+      govViewCenterDetails(rows.find((c) => c.id === b.dataset.viewCenter));
+    }));
   }, () => paint("gov-centers", emptyState("building", t("no_centers_found"), t("no_centers_desc"))));
+}
+
+/* Government's "View Details" modal for a center. Every field the center
+   document may actually have; anything not present shows "Not Available"
+   rather than being invented. Also lets Government change the
+   Government-set capacity (firestore.rules: only Government may write
+   this field; a Center can never change it). */
+function govViewCenterDetails(c) {
+  if (!c) return;
+  const na = t("not_available");
+  const date = c.createdAt?.toDate ? c.createdAt.toDate().toLocaleDateString(store.lang === "hi" ? "hi-IN" : "en-IN") : na;
+  const crops = Array.isArray(c.acceptedCrops) && c.acceptedCrops.length ? c.acceptedCrops.map(cropName).join(", ") : na;
+  const row = (label, val) => `<div class="col"><span class="tiny muted">${label}</span><span>${val != null && val !== "" ? esc(val) : na}</span></div>`;
+  openModal({
+    title: t("center_details_title"),
+    body: `<div class="grid-2">
+        ${row(t("center_name"), c.centerName)}
+        ${row(t("center_id"), c.centerId || c.id)}
+        ${row(t("contact_person"), c.adminName)}
+        ${row(t("contact_number"), c.registeredMobile)}
+        ${row(t("email"), c.email)}
+        ${row(t("state"), c.state)}
+        ${row(t("district"), c.district)}
+        ${row(t("block_field"), c.block)}
+        ${row(t("village_field"), c.village)}
+        ${row(t("address_field"), c.address)}
+        ${row(t("gov_capacity_label"), c.capacity != null ? `${c.capacity} ${t("quintal_per_day")}` : null)}
+        ${row(t("current_status"), c.status === "open" ? t("open_now") : c.status === "closed" ? t("closed_now") : null)}
+        ${row(t("government_status"), c.govStatus === "active" ? t("gov_active") : t("gov_inactive"))}
+        ${row(t("queue_info"), c.queueLength != null ? `${c.queueLength} · ${c.counters ?? "—"} ${t("counters")}` : na)}
+        ${row(t("registration_date"), date)}
+      </div>
+      <p class="tiny muted mt-2">${t("crops_accepted")}: ${esc(crops)}</p>
+      <div class="field mt-2"><label for="gov-cap-edit">${t("edit_capacity")}</label>
+        <div class="row gap-s"><input id="gov-cap-edit" inputmode="numeric" value="${c.capacity ?? ""}" style="max-width:140px">
+          <button type="button" class="btn ghost" id="gov-cap-save">${t("save_capacity")}</button></div>
+      </div>`,
+    confirmText: t("close"), hideCancel: true, wide: true,
+    onOpen: (root) => {
+      const saveBtn = root.querySelector("#gov-cap-save");
+      if (saveBtn) saveBtn.addEventListener("click", async () => {
+        const val = Math.max(0, parseInt(root.querySelector("#gov-cap-edit").value, 10) || 0);
+        saveBtn.disabled = true;
+        try { await updateDoc(doc(db, "centers", c.id), { capacity: val }); showToast(t("capacity_updated")); }
+        catch (_) { showToast(t("network_error")); }
+        finally { saveBtn.disabled = false; }
+      });
+    },
+    onConfirm: () => {},
+  });
+}
+
+/* Government's real farmer directory — real-time, real Firestore data
+   (firestore.rules: only an active Government caller may list `farmers`).
+   Kept to the most recent 200 so the listener stays light; the count KPI
+   on Overview uses getCountFromServer() separately for the true total. */
+function subscribeGovFarmers() {
+  const q1 = query(collection(db, "farmers"), orderBy("createdAt", "desc"), limit(200));
+  store._unsub.govFarmers = onSnapshot(q1, (qs) => {
+    if (qs.empty) { paint("gov-farmers", emptyState("users", t("no_farmers_found"), "")); return; }
+    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+    paint("gov-farmers", `<div class="card table-wrap"><table><tr><th>${t("full_name")}</th><th>${t("mobile")}</th><th>${t("district")}</th><th></th></tr>
+      ${rows.map((f) => `<tr><td><b>${esc(f.name)}</b><div class="tiny muted">${esc(f.username || "—")}</div></td>
+        <td>${esc(f.mobile || "—")}</td><td>${esc(f.district || "—")}</td>
+        <td><button class="btn ghost" data-view-farmer="${f.id}">${t("view_details")}</button></td></tr>`).join("")}
+    </table></div>`);
+    document.querySelectorAll("[data-view-farmer]").forEach((b) => b.addEventListener("click", () => {
+      govViewFarmerDetails(rows.find((f) => f.id === b.dataset.viewFarmer));
+    }));
+  }, () => paint("gov-farmers", emptyState("users", t("no_farmers_found"), "")));
+}
+
+function govViewFarmerDetails(f) {
+  if (!f) return;
+  const na = t("not_available");
+  const date = f.createdAt?.toDate ? f.createdAt.toDate().toLocaleDateString(store.lang === "hi" ? "hi-IN" : "en-IN") : na;
+  const crops = Array.isArray(f.mainCrops) && f.mainCrops.length ? f.mainCrops.map(cropName).join(", ") : na;
+  const row = (label, val) => `<div class="col"><span class="tiny muted">${label}</span><span>${val != null && val !== "" ? esc(val) : na}</span></div>`;
+  openModal({
+    title: t("farmer_details_title"),
+    body: `<div class="grid-2">
+        ${row(t("full_name"), f.name)}
+        ${row(t("mobile"), f.mobile)}
+        ${row(t("email"), f.email)}
+        ${row(t("username"), f.username)}
+        ${row(t("state"), f.state)}
+        ${row(t("district"), f.district)}
+        ${row(t("block_field"), f.block)}
+        ${row(t("village_field"), f.village)}
+        ${row(t("registration_date"), date)}
+      </div>
+      <p class="tiny muted mt-2">${t("main_crops")}: ${esc(crops)}</p>`,
+    confirmText: t("close"), hideCancel: true, wide: true,
+    onConfirm: () => {},
+  });
 }
 
 /* Spark-compatible direct Firestore write (no Cloud Function — that call,
@@ -2194,6 +2589,17 @@ async function govToggleCenterStatus(centerId, currentGovStatus) {
 }
 
 function subscribeGovAlerts() {
+  let centerAlertsHtml = "";
+  let paymentAlertsHtml = "";
+  const render = () => {
+    const combined = paymentAlertsHtml + centerAlertsHtml;
+    paint("gov-alerts", combined || `<div class="card tiny muted">${t("no_alerts")}</div>`);
+    document.querySelectorAll("[data-pay-status]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await updateDoc(doc(db, "paymentRequests", b.dataset.payStatus), { status: b.dataset.status }); showToast(t("saved")); }
+      catch (_) { showToast(t("network_error")); b.disabled = false; }
+    }));
+  };
   store._unsub.govAlerts = onSnapshot(collection(db, "centers"), (qs) => {
     const alerts = [];
     qs.docs.forEach((d) => {
@@ -2202,8 +2608,37 @@ function subscribeGovAlerts() {
       if (c.govStatus === "active" && c.status !== "open") alerts.push(["warn", `${c.centerName} ${store.lang === "hi" ? "अभी बंद दर्ज है।" : "is currently marked closed."}`]);
       if ((c.counters || 0) < 1) alerts.push(["danger", `${c.centerName} ${store.lang === "hi" ? "में कोई सक्रिय काउंटर नहीं है।" : "has no active counters."}`]);
     });
-    paint("gov-alerts", alerts.length ? alerts.map(([k, txt]) => `<div class="alert ${k}">${ic(k === "danger" ? "alert" : "info")}<span>${txt}</span></div>`).join("") : `<div class="card tiny muted">${t("no_alerts")}</div>`);
-  }, () => paint("gov-alerts", `<div class="card tiny muted">${t("no_alerts")}</div>`));
+    centerAlertsHtml = alerts.map(([k, txt]) => `<div class="alert ${k}">${ic(k === "danger" ? "alert" : "info")}<span>${txt}</span></div>`).join("");
+    render();
+  }, () => { centerAlertsHtml = ""; render(); });
+
+  // Real-time payment-request alerts (onSnapshot — no polling) routed to
+  // Government. The unread/pending count is simply "status == open" among
+  // these live documents, so it updates the instant a farmer files one or
+  // Government resolves it — no separate counter document to keep in sync.
+  const q1 = query(collection(db, "paymentRequests"), where("requestedTo", "==", "gov"), orderBy("createdAt", "desc"), limit(30));
+  store._unsub.govAlertsPayments = onSnapshot(q1, (qs) => {
+    const openCount = qs.docs.filter((d) => d.data().status === "open").length;
+    paymentAlertsHtml = qs.empty ? "" : `<div class="card">
+      <div class="row gap-s"><b>${t("nav_payments")}</b>${openCount ? `<span class="badge red">${openCount}</span>` : ""}</div>
+      ${qs.docs.map((d) => {
+        const r = { id: d.id, ...d.data() };
+        const date = r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
+        return `<div class="history-item" style="flex-direction:column;align-items:stretch">
+          <div class="row gap-s"><b>${esc(r.farmerName)}</b><span class="tiny muted">${esc(r.centerName)}</span><span class="spacer"></span>${paymentStatusBadge(r.status)}</div>
+          <div class="tiny muted">${t("issue_type")}: ${t("issue_" + r.issueType)} · ${fmtINR(r.amount)}</div>
+          ${r.description ? `<div class="tiny">${esc(r.description)}</div>` : ""}
+          <div class="tiny muted">${date}</div>
+          <div class="row gap-s mt-1">
+            <button class="btn ghost" data-pay-status="${r.id}" data-status="acknowledged" ${r.status !== "open" ? "disabled" : ""}>${t("acknowledge")}</button>
+            <button class="btn ghost" data-pay-status="${r.id}" data-status="under_review" ${r.status === "resolved" ? "disabled" : ""}>${t("under_review_action")}</button>
+            <button class="btn" data-pay-status="${r.id}" data-status="resolved" ${r.status === "resolved" ? "disabled" : ""}>${t("resolve")}</button>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>`;
+    render();
+  }, () => { paymentAlertsHtml = ""; render(); });
 }
 
 /* ============================== attach/detach live listeners on nav ============================== */
@@ -2219,11 +2654,13 @@ function attachRoleListeners() {
   } else if (role === "center") {
     if (store.centerTab === "queue") subscribeCenterQueue();
     if (store.centerTab === "capacity") subscribeCenterCapacity();
+    if (store.centerTab === "payments") subscribeCenterPayments();
     if (store.centerTab === "notif") subscribeCenterNotif();
     if (store.centerTab === "settings") wireCenterSettings();
   } else if (role === "gov") {
     if (store.govTab === "overview") subscribeGovOverview();
     if (store.govTab === "centers") subscribeGovCenters();
+    if (store.govTab === "farmers") subscribeGovFarmers();
     if (store.govTab === "register") wireGovRegister();
     if (store.govTab === "alerts") subscribeGovAlerts();
   }
@@ -2240,6 +2677,7 @@ function wireFarmerSettings() {
 function wireGovRegister() {
   const form = document.getElementById("gov-register-form");
   if (!form) return;
+  wireLocationShareButton(store.centerRegisterData);
   wireLocationSelects(document, (level, value) => {
     const d = store.centerRegisterData;
     if (level === "state") { d.stateCode = value; d.districtCode = null; d.blockCode = null; d.villageCode = null; }
@@ -2333,10 +2771,9 @@ function wireGovRegister() {
         authProvider: "password", language: store.lang, theme: "light",
         status: "active", mustChangePassword: true, createdAt: serverTimestamp(),
       });
-      const { latitude, longitude, ...centerLoc } = loc;
       batch.set(doc(db, "centers", centerId), {
         centerId, centerName: f.centerName.value.trim(), centerCode, registeredMobile: mobile,
-        ...centerLoc, address: f.address.value.trim() || null,
+        ...loc, address: f.address.value.trim() || null,
         capacity: Math.max(0, parseInt(f.capacity.value, 10) || 0),
         counters: Math.max(1, parseInt(f.counters.value, 10) || 1),
         acceptedCrops: crops, govStatus: "active", status: "closed", createdAt: serverTimestamp(),
@@ -2765,21 +3202,16 @@ function wireScreen() {
         else if (level === "village") { d.villageCode = value; }
         paintScreen();
       });
+      wireLocationShareButton(store.signupData);
     }
     const back = document.getElementById("signup-back"); if (back) back.addEventListener("click", signupBack);
     const exit = document.getElementById("signup-exit"); if (exit) exit.addEventListener("click", () => { store.screen = "login"; paintScreen(); });
   } else if (store.screen === "forgot") {
-    const idForm = document.getElementById("forgot-id-form"); if (idForm) idForm.addEventListener("submit", forgotSendOtp);
-    const resetForm = document.getElementById("reset-form"); if (resetForm) resetForm.addEventListener("submit", forgotResetPassword);
+    document.querySelectorAll("[data-reset-method]").forEach((b) => b.addEventListener("click", () => { store.forgotMethod = b.dataset.resetMethod; paintScreen(); }));
+    document.querySelectorAll("[data-reset-role]").forEach((b) => b.addEventListener("click", () => { store.forgotRole = b.dataset.resetRole; paintScreen(); }));
+    const form = document.getElementById("forgot-reset-form"); if (form) form.addEventListener("submit", forgotSubmit);
     const exit = document.getElementById("forgot-exit"); if (exit) exit.addEventListener("click", exitForgot);
     const done = document.getElementById("forgot-done"); if (done) done.addEventListener("click", exitForgot);
-    const resend = document.getElementById("otp-resend");
-    if (resend) resend.addEventListener("click", async () => {
-      const mobile = store.forgotData.mobile;
-      if (!mobile) return;
-      try { await sendForgotOtp(mobile); } catch (_) { showToast(t("network_error")); }
-    });
-    wireOtpBoxes();
   } else if (store.screen === "forcePassword") {
     const form = document.getElementById("force-pw-form"); if (form) form.addEventListener("submit", handleForcePasswordChange);
   } else if (store.screen === "googleComplete") {
@@ -2794,26 +3226,13 @@ function wireScreen() {
         else if (level === "village") { d.villageCode = value; }
         paintScreen();
       });
+      wireLocationShareButton(store.googleData);
     }
     const back = document.getElementById("google-back"); if (back) back.addEventListener("click", googleCompleteBack);
   } else {
     wireShell();
   }
 }
-function wireOtpBoxes() {
-  const boxes = document.querySelectorAll("[data-otp-index]");
-  if (!boxes.length) return;
-  boxes.forEach((box, i) => {
-    box.addEventListener("input", () => {
-      box.value = box.value.replace(/\D/g, "").slice(0, 1);
-      if (box.value && boxes[i + 1]) boxes[i + 1].focus();
-      const otp = Array.from(boxes).map((b) => b.value).join("");
-      if (otp.length === 6) forgotVerifyOtp(otp);
-    });
-    box.addEventListener("keydown", (e) => { if (e.key === "Backspace" && !box.value && boxes[i - 1]) boxes[i - 1].focus(); });
-  });
-}
-
 /* ============================== boot ============================== */
 applyTheme();
 document.documentElement.lang = store.lang === "hi" ? "hi" : "en";

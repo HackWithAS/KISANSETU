@@ -286,9 +286,12 @@ main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 20px 22
 
 .table-wrap { overflow-x: auto; padding: 0; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 560px; }
-th, td { text-align: left; padding: 10px 22px; border-bottom: 1px solid var(--line); }
-th { color: var(--text-muted); font-weight: 600; font-size: 12.5px; }
+th, td { text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { color: var(--text-muted); font-weight: 600; font-size: 12.5px; white-space: nowrap; }
 tr:last-child td { border-bottom: 0; }
+th:last-child, td:last-child { text-align: right; }
+.table-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+.table-actions .btn { white-space: nowrap; }
 
 .bar { display: block; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .bar span { display: block; height: 100%; border-radius: 999px; transition: width var(--dur-2) var(--ease); }
@@ -297,8 +300,10 @@ tr:last-child td { border-bottom: 0; }
   position: fixed; inset: 0; background: rgba(16, 32, 26, 0.45); display: flex;
   align-items: center; justify-content: center; z-index: 70; padding: 16px;
 }
-.modal { background: var(--surface); border-radius: var(--radius-l); padding: 22px; max-width: 400px; width: 100%; box-shadow: var(--shadow-2); animation: pop-in var(--dur-2) var(--ease); }
-.modal .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+.modal { background: var(--surface); border-radius: var(--radius-l); padding: 22px; max-width: 400px; width: 100%; box-shadow: var(--shadow-2); animation: pop-in var(--dur-2) var(--ease); max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+.modal.wide { max-width: 640px; }
+.modal .modal-body { overflow-y: auto; }
+.modal .modal-actions { display: flex; gap: 10px; margin-top: 18px; flex-shrink: 0; }
 .modal .modal-actions .btn { flex: 1; }
 
 /* ---------- login ---------- */
@@ -313,49 +318,59 @@ tr:last-child td { border-bottom: 0; }
 .auth-visual h2 { color: var(--cream); font-family: "Tiro Devanagari Hindi", Georgia, serif; font-size: 26px; font-weight: 500; }
 .auth-visual p { color: rgba(251,249,241,0.82); max-width: 34ch; }
 
-.auth-panel { display: flex; align-items: center; justify-content: center; padding: 28px 18px 40px; }
+.auth-panel { display: flex; align-items: center; justify-content: center; padding: 18px 18px 22px; min-height: 100vh; overflow-y: auto; }
 .auth-card { width: 100%; max-width: 400px; }
-.auth-lang { display: flex; justify-content: flex-end; margin-bottom: 18px; }
-.auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.auth-lang { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.auth-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
 .auth-brand .glyph { width: 42px; height: 42px; border-radius: var(--radius-s); background: var(--accent-strong); color: var(--cream); display: flex; align-items: center; justify-content: center; }
 .auth-brand .glyph svg { width: 23px; height: 23px; }
 .auth-brand-name { font-family: "Tiro Devanagari Hindi", Georgia, serif; font-size: 25px; }
-.auth-tagline { color: var(--text-muted); font-size: 14px; margin-bottom: 22px; }
+.auth-tagline { color: var(--text-muted); font-size: 13.5px; margin-bottom: 14px; }
 
-.role-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 22px; }
+.role-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
 .role-card {
   border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-m);
-  padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 9px 8px; display: flex; flex-direction: column; align-items: center; gap: 5px;
   cursor: pointer; font-size: 12.5px; color: var(--text-muted);
   transition: border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
-.role-card svg { width: 20px; height: 20px; }
+.role-card svg { width: 18px; height: 18px; }
 .role-card[aria-pressed="true"] { border-color: var(--accent-strong); color: var(--accent-strong); background: rgba(47,107,58,0.06); font-weight: 600; }
 
-.auth-form-head { margin-bottom: 16px; }
+.auth-form-head { margin-bottom: 12px; }
 .auth-form-head h1 { font-size: 19px; }
-.auth-links-row { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 13.5px; }
-.auth-switch { text-align: center; margin-top: 18px; font-size: 14px; color: var(--text-muted); }
-.auth-foot-links { display: flex; justify-content: center; gap: 18px; margin-top: 22px; font-size: 13px; }
+.auth-links-row { display: flex; justify-content: space-between; align-items: center; margin-top: 2px; font-size: 13.5px; }
+.auth-switch { text-align: center; margin-top: 12px; font-size: 14px; color: var(--text-muted); }
+.auth-foot-links { display: flex; justify-content: center; gap: 18px; margin-top: 14px; font-size: 13px; }
 .auth-foot-links button { background: none; border: 0; color: var(--text-muted); cursor: pointer; text-decoration: underline; }
 
-.auth-divider { display: flex; align-items: center; gap: 10px; margin: 14px 0; color: var(--text-muted); font-size: 12.5px; }
+.auth-divider { display: flex; align-items: center; gap: 10px; margin: 10px 0; color: var(--text-muted); font-size: 12.5px; }
 .auth-divider::before, .auth-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 
 .google-btn { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .google-btn svg { width: 16px; height: 16px; }
 
 .demo-cta-btn { display: flex; align-items: center; justify-content: center; gap: 8px; }
-.demo-picker { margin-top: 10px; padding: 12px; border: 1px dashed var(--line); border-radius: var(--radius-m); background: var(--cream); }
+.demo-picker { margin-top: 8px; padding: 10px; border: 1px dashed var(--line); border-radius: var(--radius-m); background: var(--cream); }
 .demo-role-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .demo-role-btn {
   border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-m);
-  padding: 12px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 8px; display: flex; flex-direction: column; align-items: center; gap: 5px;
   cursor: pointer; font-size: 12.5px; color: var(--text-muted);
   transition: border-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
 }
-.demo-role-btn svg { width: 20px; height: 20px; }
+.demo-role-btn svg { width: 18px; height: 18px; }
 .demo-role-btn:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+
+/* Shorter laptop viewports (browser chrome, small screens): compact the
+   form fields and captcha box further so the whole card — including the
+   Demo button — still fits without scrolling the page. */
+@media (max-height: 760px) {
+  .field { margin-bottom: 10px; }
+  .auth-panel { padding-top: 12px; padding-bottom: 14px; }
+  .auth-tagline, .role-cards { margin-bottom: 10px; }
+  .captcha-box { padding: 7px 12px; margin-bottom: 10px; }
+}
 
 .demo-banner {
   display: flex; align-items: center; gap: 8px; justify-content: center;
