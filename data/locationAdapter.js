@@ -37,6 +37,16 @@ export function isReady() { return raw !== null; }
 
 function sampleState() { return raw && raw.development_sample ? raw.development_sample.state : null; }
 
+// development_sample.state.districts is a list; older builds of this file
+// shipped a single `district` object instead. Reading both keeps this
+// adapter working whichever shape locations.json currently has.
+function sampleDistricts() {
+  const s = sampleState();
+  if (!s) return [];
+  if (Array.isArray(s.districts)) return s.districts;
+  return s.district ? [s.district] : [];
+}
+
 export function getStates() {
   const s = sampleState();
   if (!s) return [];
@@ -46,13 +56,13 @@ export function getStates() {
 export function getDistricts(stateCode) {
   const s = sampleState();
   if (!s || !stateCode || s.code !== stateCode) return [];
-  const d = s.district;
-  return d ? [{ code: d.code, name: d.name_en, nameHi: d.name_local || d.name_en }] : [];
+  return sampleDistricts().map((d) => ({ code: d.code, name: d.name_en, nameHi: d.name_local || d.name_en }));
 }
 
 export function getBlocks(districtCode) {
-  const d = sampleState() && sampleState().district;
-  if (!d || !districtCode || d.code !== districtCode) return [];
+  if (!districtCode) return [];
+  const d = sampleDistricts().find((x) => x.code === districtCode);
+  if (!d) return [];
   return (d.blocks || []).map((b) => ({ code: b.code, name: b.name_en, nameHi: b.name_local || b.name_en }));
 }
 

@@ -188,6 +188,20 @@ const I18N = {
     reset_email_sent: "यदि यह खाता मौजूद है, तो पंजीकृत ईमेल पर पासवर्ड रीसेट लिंक भेज दिया गया है।",
     reset_email_note: "ध्यान दें: यह लिंक केवल उसी ईमेल पर जाता है जो इस खाते के लिए Firebase में दर्ज है (जैसे Google से साइन इन करने वाला किसान खाता)।",
     send_reset_link: "रीसेट लिंक भेजें",
+    nav_pending_payment: "लंबित भुगतान", mark_payment: "भुगतान दर्ज करें", paid_amount_label: "भुगतान राशि (₹)",
+    enter_amount: "वास्तविक भुगतान राशि दर्ज करें", payment_marked_confirmation: "₹{amount} का भुगतान 'भुगतान हुआ' के रूप में दर्ज किया गया है।",
+    payment_received: "भुगतान मिल गया", payment_not_received: "भुगतान नहीं मिला / शिकायत करें",
+    confirmed: "भुगतान की पुष्टि हुई", awaiting_confirmation: "किसान की पुष्टि लंबित",
+    no_pending_payments: "कोई लंबित भुगतान नहीं", pending_payment_desc: "जिन किसानों की फ़सल ली जा चुकी है और भुगतान अभी बाकी है, वे यहाँ दिखेंगे।",
+    center_marked_paid_banner: "केंद्र ने आपके ₹{amount} के भुगतान को 'भुगतान हुआ' दर्ज किया है।",
+    payment_confirmed_toast: "भुगतान की पुष्टि हो गई", expected_amount: "अनुमानित राशि",
+    today_collection_title: "आज का केंद्र-वार संग्रह", col_center: "केंद्र", col_district: "ज़िला",
+    col_today_qty: "आज की मात्रा", col_today_purchases: "आज की खरीद", col_today_amount: "राशि",
+    no_collection_today: "आज तक कोई खरीद दर्ज नहीं हुई",
+    announcements_title: "सरकारी घोषणा", create_announcement: "घोषणा बनाएँ", announcement_message: "घोषणा संदेश",
+    announcement_active: "सक्रिय", announcement_inactive: "निष्क्रिय", announcement_expiry: "समाप्ति तिथि/समय (वैकल्पिक)",
+    all_centers_closed_today: "आज सभी केंद्र बंद रहेंगे", publish_announcement: "प्रकाशित करें", deactivate_announcement: "निष्क्रिय करें",
+    no_announcements: "कोई घोषणा नहीं", announcement_created: "घोषणा प्रकाशित हुई",
   },
   en: {
     brand: "Kisan Setu", tagline: "Connecting farmers and procurement centers, simply.",
@@ -233,7 +247,7 @@ const I18N = {
     crop: "Crop", quantity: "Quantity", rate: "Rate", total: "Total amount", grade: "Grade", payment_status: "Payment status",
     paid: "Paid", pending: "Pending", processing: "Processing",
     notifications: "Notifications", no_notifications: "No notifications", no_notifications_desc: "New notifications will appear here.",
-    about_title: "What is Kisan Setu", about_body: "Kisan Setu connects farmers with nearby procurement centers, manages tokens and queues, and shows purchase history and payment status. Center staff manage their own queue and capacity, and government accounts monitor all centers.",
+    about_title: "What is Kisan Setu?", about_body: "Kisan Setu connects farmers with nearby procurement centers, manages tokens and queues, and shows purchase history and payment status. Center staff manage their own queue and capacity, and government accounts monitor all centers.",
     help_title: "Help", faq_book: "How do I book a token?", faq_book_a: "Pick a nearby center and book a token in an available slot.",
     faq_reach: "How do I reach a center?", faq_reach_a: "Distance and address are shown against each center.",
     faq_cancel: "How do I cancel a token?", faq_cancel_a: "Open 'My token' and choose 'Cancel token'.",
@@ -318,6 +332,20 @@ const I18N = {
     reset_email_sent: "If an account exists, a password reset link has been sent to its registered email.",
     reset_email_note: "Note: this link only reaches the exact email registered in Firebase for this account (for example, a farmer account signed in with Google).",
     send_reset_link: "Send reset link",
+    nav_pending_payment: "Pending Payment", mark_payment: "Mark Payment", paid_amount_label: "Amount paid (₹)",
+    enter_amount: "Enter the actual amount paid", payment_marked_confirmation: "Payment of ₹{amount} has been marked as paid.",
+    payment_received: "Payment Received", payment_not_received: "Payment Not Received / Report Issue",
+    confirmed: "Payment confirmed", awaiting_confirmation: "Awaiting farmer confirmation",
+    no_pending_payments: "No pending payments", pending_payment_desc: "Farmers whose crop has been collected and whose payment is still due will appear here.",
+    center_marked_paid_banner: "The center has marked your payment of ₹{amount} as paid.",
+    payment_confirmed_toast: "Payment confirmed", expected_amount: "Expected amount",
+    today_collection_title: "Today's Collection by Center", col_center: "Center", col_district: "District",
+    col_today_qty: "Today's quantity", col_today_purchases: "Today's purchases", col_today_amount: "Amount",
+    no_collection_today: "No purchases recorded today",
+    announcements_title: "Government Announcement", create_announcement: "Create Announcement", announcement_message: "Announcement message",
+    announcement_active: "Active", announcement_inactive: "Inactive", announcement_expiry: "Expiry date/time (optional)",
+    all_centers_closed_today: "All centers closed today", publish_announcement: "Publish", deactivate_announcement: "Deactivate",
+    no_announcements: "No announcements", announcement_created: "Announcement published",
   },
 };
 function t(key) { return (I18N[store.lang] && I18N[store.lang][key]) || I18N.hi[key] || key; }
@@ -1317,8 +1345,8 @@ function roleLabel() {
 }
 function navItemsFor(role) {
   if (role === "farmer") return [["home", "mapPin", t("nav_home")], ["token", "ticket", t("nav_token")], ["history", "history", t("nav_history")], ["notif", "bell", t("nav_notif")], ["help", "help", t("nav_help")]];
-  if (role === "center") return [["queue", "users", t("nav_queue")], ["capacity", "settings", t("nav_capacity")], ["payments", "alert", t("nav_payments")], ["notif", "bell", t("nav_notif")], ["settings", "user", t("nav_settings")]];
-  return [["overview", "chart", t("nav_overview")], ["centers", "building", t("nav_centers")], ["farmers", "users", t("nav_farmers")], ["register", "plus", t("nav_register")], ["alerts", "alert", t("nav_alerts")], ["settings", "settings", t("nav_settings")]];
+  if (role === "center") return [["queue", "users", t("nav_queue")], ["pending", "ticket", t("nav_pending_payment")], ["capacity", "settings", t("nav_capacity")], ["payments", "alert", t("nav_payments")], ["notif", "bell", t("nav_notif")], ["settings", "user", t("nav_settings")]];
+  return [["overview", "chart", t("nav_overview")], ["centers", "building", t("nav_centers")], ["farmers", "users", t("nav_farmers")], ["register", "plus", t("nav_register")], ["announce", "bell", t("announcements_title")], ["alerts", "alert", t("nav_alerts")], ["settings", "settings", t("nav_settings")]];
 }
 function currentTabKey() { return store.profile.role === "farmer" ? store.farmerTab : store.profile.role === "center" ? store.centerTab : store.govTab; }
 function setTabKey(k) {
@@ -1332,7 +1360,8 @@ function setTabKey(k) {
 function appShellHtml(bodyHtml) {
   const items = navItemsFor(store.profile.role);
   const active = currentTabKey();
-  return `<header class="topbar">
+  return `<div id="ks-ticker"></div>
+  <header class="topbar">
     <div class="brand-mark"><div class="glyph">${ic("sprout", 18)}</div>
       <div class="brand-name brand-face">${t("brand")}<small>${esc(roleLabel())}</small></div></div>
     <nav class="top-tabs">${items.map(([k, icon, label]) => `<button data-tab="${k}" aria-current="${active === k}">${ic(icon, 16)}${label}</button>`).join("")}</nav>
@@ -1343,7 +1372,8 @@ function appShellHtml(bodyHtml) {
       <div class="account-menu">
         <button class="account-btn" id="account-btn"><span class="account-avatar">${esc((roleLabel() || "?").slice(0, 1))}</span>${ic("chevDown", 15)}</button>
         <div class="account-panel ${store.accountOpen ? "open" : ""}" id="account-panel">
-          <button id="acct-settings">${ic("settings", 16)}${t("profile")}</button>
+          <button id="acct-profile">${ic("user", 16)}${t("my_profile")}</button>
+          <button id="acct-settings">${ic("settings", 16)}${t("nav_settings")}</button>
           <div class="divider"></div>
           <button class="danger" id="acct-logout">${ic("logout", 16)}${t("logout")}</button>
         </div>
@@ -1363,8 +1393,18 @@ function wireShell() {
   if (acctBtn) acctBtn.addEventListener("click", () => { store.accountOpen = !store.accountOpen; document.getElementById("account-panel").classList.toggle("open", store.accountOpen); });
   const acctLogout = document.getElementById("acct-logout");
   if (acctLogout) acctLogout.addEventListener("click", logout);
+  const acctProfile = document.getElementById("acct-profile");
+  if (acctProfile) acctProfile.addEventListener("click", () => {
+    store.accountOpen = false;
+    const panel = document.getElementById("account-panel"); if (panel) panel.classList.remove("open");
+    openProfileModal();
+  });
   const acctSettings = document.getElementById("acct-settings");
-  if (acctSettings) acctSettings.addEventListener("click", () => setTabKey("settings"));
+  if (acctSettings) acctSettings.addEventListener("click", () => {
+    store.accountOpen = false;
+    const panel = document.getElementById("account-panel"); if (panel) panel.classList.remove("open");
+    setTabKey("settings");
+  });
   document.addEventListener("click", (e) => {
     const panel = document.getElementById("account-panel"), btn = document.getElementById("account-btn");
     if (panel && store.accountOpen && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
@@ -1449,6 +1489,84 @@ function farmerProfileCardHtml(farmer) {
     </div>
     <p class="tiny muted mt-1">${hasLoc ? `${t("location_updated")} (${farmer.latitude.toFixed(4)}, ${farmer.longitude.toFixed(4)})` : t("distance_unavailable")}</p>
   </div>`;
+}
+
+/* ---- Center profile card: the logged-in Center's own real Firestore
+   center document (centers/{centerId}) plus the operator's own contact
+   name from users/{uid} (store.profile.name). Never Demo data. ---- */
+function centerProfileCardHtml(center, profile) {
+  if (!center) return `<div class="card muted tiny">${t("loading")}</div>`;
+  const row = (label, val) => `<div class="col"><span class="tiny muted">${label}</span><span>${val != null && val !== "" ? esc(val) : t("not_available")}</span></div>`;
+  const crops = Array.isArray(center.acceptedCrops) && center.acceptedCrops.length
+    ? center.acceptedCrops.map(cropName).join("، ") : null;
+  const created = center.createdAt && center.createdAt.toDate ? center.createdAt.toDate().toLocaleDateString(store.lang === "hi" ? "hi-IN" : "en-IN") : null;
+  return `<div class="card" id="center-profile-card">
+    <h3 style="margin:0 0 8px">${t("my_profile")}</h3>
+    <div class="grid-2">
+      ${row(t("center_name"), center.centerName)}
+      ${row(t("center_id"), center.centerId)}
+      ${row(t("contact_person"), profile && profile.name)}
+      ${row(t("mobile"), center.registeredMobile)}
+      ${row(t("email"), center.email)}
+      ${row(t("state"), center.state)}
+      ${row(t("district"), center.district)}
+      ${row(t("block"), center.block)}
+      ${row(t("village"), center.village)}
+      ${row(t("address_field"), center.address)}
+      ${row(t("gov_capacity_label"), typeof center.capacity === "number" ? `${center.capacity} ${t("quintal_per_day")}` : null)}
+      ${row(t("crops_list"), crops)}
+      ${row(t("current_status"), center.status === "open" ? t("open_now") : center.status === "closed" ? t("closed_now") : null)}
+      ${row(t("government_status"), center.govStatus === "active" ? t("gov_active") : center.govStatus === "inactive" ? t("gov_inactive") : null)}
+      ${row(t("registration_date"), created)}
+    </div>
+  </div>`;
+}
+
+/* Opens the logged-in user's real Profile Card as a modal — reachable
+   ONLY from the avatar/account menu. Deliberately separate from Settings
+   (password change), which stays a separate nav/menu item. Always reads
+   the current Firestore doc, never cached/demo data. */
+function openProfileModal() {
+  const role = store.profile.role;
+  openModal({
+    title: t("my_profile"),
+    body: `<div id="profile-modal-body">${loadingBlock()}</div>`,
+    hideCancel: true,
+    confirmText: t("close"),
+    onOpen: (root) => {
+      const target = () => root.querySelector("#profile-modal-body");
+      if (role === "farmer") {
+        getDoc(doc(db, "farmers", store.user.uid)).then((snap) => {
+          const farmer = snap.exists() ? snap.data() : null;
+          const el = target(); if (el) el.innerHTML = farmerProfileCardHtml(farmer);
+          const locBtn = root.querySelector("#farmer-update-location");
+          if (locBtn) locBtn.addEventListener("click", async () => {
+            locBtn.disabled = true;
+            const loc = await tryGetLocation();
+            locBtn.disabled = false;
+            if (!loc) { showToast(t("location_denied")); return; }
+            try {
+              await updateDoc(doc(db, "farmers", store.user.uid), { latitude: loc.latitude, longitude: loc.longitude, updatedAt: serverTimestamp() });
+              showToast(t("location_updated"));
+              openProfileModal();
+              if (store.farmerTab === "home") subscribeFarmerHome();
+            } catch (_) { showToast(t("network_error")); }
+          });
+        }).catch(() => { const el = target(); if (el) el.innerHTML = `<div class="card muted tiny">${t("err_unknown")}</div>`; });
+      } else if (role === "center") {
+        getDoc(doc(db, "centers", store.profile.centerId)).then((snap) => {
+          const center = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+          const el = target(); if (el) el.innerHTML = centerProfileCardHtml(center, store.profile);
+        }).catch(() => { const el = target(); if (el) el.innerHTML = `<div class="card muted tiny">${t("err_unknown")}</div>`; });
+      } else {
+        const el = target();
+        if (el) el.innerHTML = `<div class="card"><div class="grid-2">
+          <div class="col"><span class="tiny muted">${t("official_id")}</span><span>${esc(store.profile.officialId || "")}</span></div>
+          <div class="col"><span class="tiny muted">${t("full_name")}</span><span>${esc(store.profile.name || "")}</span></div>
+        </div></div>`;
+      }
+    },
+  });
 }
 
 function subscribeFarmerHome() {
@@ -1709,16 +1827,48 @@ function subscribeFarmerHistory() {
     const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
     paint("farmer-history", `<div class="card">${rows.map((p) => {
       const date = p.purchaseDate?.toDate ? p.purchaseDate.toDate().toLocaleDateString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
-      return `<div class="history-item"><div>
-          <div class="row gap-s"><b>${esc(cropName(p.crop))}</b><span class="tiny muted">${date}</span></div>
-          <div class="tiny muted">${esc(p.centerName || p.centerId)} · ${esc(p.quantity)} · ${t("grade")}: ${esc(p.grade || "—")}</div>
-          <button class="btn ghost tiny mt-1" data-report-issue="${p.id}">${t("payment_issue")}</button>
+      const badgeCls = p.paymentStatus === "confirmed" || p.paymentStatus === "paid" ? "green" : p.paymentStatus === "processing" ? "gold" : "muted";
+      const badgeLabel = t(p.paymentStatus || "pending");
+      // 'processing' = the Center has marked this paid but the farmer has
+      // not yet confirmed receipt — show the confirmation prompt from
+      // spec item 9/10 right here, driven by the live onSnapshot above so
+      // no refresh is ever needed.
+      const confirmBanner = p.paymentStatus === "processing" ? `
+        <div class="alert warn mt-1" style="flex-direction:column;align-items:stretch;gap:6px">
+          <span>${esc(t("center_marked_paid_banner").replace("{amount}", Number(p.paidAmount ?? p.amount).toLocaleString("en-IN")))}</span>
+          <div class="row gap-s">
+            <button class="btn" data-payment-received="${p.id}">${t("payment_received")}</button>
+            <button class="btn ghost" data-report-issue="${p.id}">${t("payment_not_received")}</button>
+          </div>
+        </div>` : "";
+      return `<div class="history-item" style="flex-direction:column;align-items:stretch">
+        <div class="row gap-s" style="width:100%">
+          <div>
+            <div class="row gap-s"><b>${esc(cropName(p.crop))}</b><span class="tiny muted">${date}</span></div>
+            <div class="tiny muted">${esc(p.centerName || p.centerId)} · ${esc(p.quantity)} · ${t("grade")}: ${esc(p.grade || "—")}</div>
+            ${p.paymentStatus !== "processing" ? `<button class="btn ghost tiny mt-1" data-report-issue="${p.id}">${t("payment_issue")}</button>` : ""}
+          </div>
+          <span class="spacer"></span>
+          <div class="amount">${fmtINR(p.amount)}<div><span class="badge ${badgeCls}">${badgeLabel}</span></div></div>
         </div>
-        <div class="amount">${fmtINR(p.amount)}<div><span class="badge ${p.paymentStatus === "paid" ? "green" : p.paymentStatus === "processing" ? "gold" : "muted"}">${t(p.paymentStatus || "pending")}</span></div></div>
+        ${confirmBanner}
       </div>`;
     }).join("")}</div>`);
     document.querySelectorAll("[data-report-issue]").forEach((b) => b.addEventListener("click", () => {
       openPaymentIssueModal(rows.find((p) => p.id === b.dataset.reportIssue));
+    }));
+    document.querySelectorAll("[data-payment-received]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await withTimeout(updateDoc(doc(db, "purchases", b.dataset.paymentReceived), {
+          paymentStatus: "confirmed", confirmedAt: serverTimestamp(), confirmedBy: store.user.uid,
+        }), OP_TIMEOUT_MS);
+        showToast(t("payment_confirmed_toast"));
+      } catch (e) {
+        console.error("[farmerConfirmPayment] error.code:", e && e.code, "| message:", e && e.message);
+        showToast(t(simpleErrorKey(e)));
+        b.disabled = false;
+      }
     }));
   }, () => paint("farmer-history", emptyState("history", t("no_history"), t("no_history_desc"))));
 }
@@ -1797,6 +1947,7 @@ function centerBody() {
   if (tab === "queue") return `<div class="row gap-s"><h2 class="section-title" style="margin:0">${t("queue_title")}</h2><span class="spacer"></span>
       <button class="btn gold" id="add-local-purchase">${ic("plus", 16)}${t("add_local_purchase")}</button></div>
     <div id="queue-sync"></div><div id="center-queue">${loadingBlock()}</div>`;
+  if (tab === "pending") return `<h2 class="section-title">${t("nav_pending_payment")}</h2><div id="center-pending">${loadingBlock()}</div>`;
   if (tab === "capacity") return `<h2 class="section-title">${t("center_status")}</h2><div id="center-capacity">${loadingBlock()}</div>`;
   if (tab === "payments") return `<h2 class="section-title">${t("nav_payments")}</h2><div id="center-payments">${loadingBlock()}</div>`;
   if (tab === "notif") return `<h2 class="section-title">${t("notifications")}</h2><div id="center-notif">${loadingBlock()}</div>`;
@@ -2369,13 +2520,115 @@ function subscribeCenterPayments() {
   }, () => paint("center-payments", emptyState("alert", t("no_payment_requests"), "")));
 }
 
+/* ------------------------------------------------------------------
+   Pending Payment (Center): real purchases (purchases/{id}) tied to
+   THIS center whose paymentStatus is still 'pending' — the token was
+   served, the purchase document exists, but the farmer hasn't been
+   paid yet. "Mark Payment" moves it to 'processing' (awaiting the
+   farmer's own confirmation, shown in real time in their Purchase
+   History via subscribeFarmerHistory's onSnapshot — no Cloud Function
+   / notification write needed for that). Never a fake/manual record:
+   this only ever lists real purchases already created when a token
+   was served (see centerServeToken) or a local purchase was added.
+------------------------------------------------------------------ */
+function subscribeCenterPending() {
+  let tokenRows = null, localRows = null;
+  const fmtDate = (p) => (p.purchaseDate?.toDate ? p.purchaseDate.toDate().toLocaleDateString(store.lang === "hi" ? "hi-IN" : "en-IN") : "");
+  const render = () => {
+    if (tokenRows === null || localRows === null) return; // wait for both first snapshots
+    const rows = [...tokenRows, ...localRows].sort((a, b) => (b.purchaseDate?.toMillis?.() || 0) - (a.purchaseDate?.toMillis?.() || 0));
+    if (!rows.length) { paint("center-pending", emptyState("ticket", t("no_pending_payments"), t("pending_payment_desc"))); return; }
+    paint("center-pending", `<div class="card">${rows.map((p) => `<div class="history-item"><div>
+          <div class="row gap-s"><b>${esc(p.farmerName)}</b><span class="tiny muted">${fmtDate(p)}</span>${p._source === "local" ? `<span class="badge muted">${t("add_local_purchase")}</span>` : ""}</div>
+          <div class="tiny muted">${esc(cropName(p.crop))} · ${esc(p.quantity)} ${t("quintal_short")} · ${t("rate_per_quintal")}: ${fmtINR(p.rate)}</div>
+          <div class="tiny muted">${t("expected_amount")}: ${fmtINR(p.amount)}</div>
+          <button class="btn gold tiny mt-1" data-mark-payment="${p._source}:${p.id}">${t("mark_payment")}</button>
+        </div>
+        <div class="amount"><span class="badge muted">${t("pending")}</span></div>
+      </div>`).join("")}</div>`);
+    document.querySelectorAll("[data-mark-payment]").forEach((b) => b.addEventListener("click", () => {
+      const [source, id] = b.dataset.markPayment.split(":");
+      const list = source === "local" ? localRows : tokenRows;
+      openMarkPaymentModal(list.find((p) => p.id === id), source);
+    }));
+  };
+  const q1 = query(collection(db, "purchases"),
+    where("centerId", "==", store.profile.centerId), where("paymentStatus", "==", "pending"),
+    orderBy("purchaseDate", "desc"), limit(50));
+  store._unsub.centerPending = onSnapshot(q1,
+    (qs) => { tokenRows = qs.docs.map((d) => ({ id: d.id, _source: "token", ...d.data() })); render(); },
+    () => { tokenRows = []; render(); });
+  const q2 = query(collection(db, "localPurchases"),
+    where("centerId", "==", store.profile.centerId), where("paymentStatus", "==", "pending"),
+    orderBy("purchaseDate", "desc"), limit(50));
+  store._unsub.centerPendingLocal = onSnapshot(q2,
+    (qs) => { localRows = qs.docs.map((d) => ({ id: d.id, _source: "local", ...d.data() })); render(); },
+    () => { localRows = []; render(); });
+}
+
+/* source == "token" -> purchases/{id}, moves pending -> processing and
+   waits for the farmer's own confirmation (spec items 9/10, surfaced
+   live in Farmer > Purchase history). source == "local" -> localPurchases/{id};
+   a local/walk-in entry has no guaranteed linked farmer account to send a
+   confirmation prompt to, so marking it paid there is final (pending -> paid). */
+function openMarkPaymentModal(purchase, source) {
+  if (!purchase) return;
+  const collName = source === "local" ? "localPurchases" : "purchases";
+  const nextStatus = source === "local" ? "paid" : "processing";
+  openModal({
+    title: t("mark_payment"),
+    body: `<p class="tiny muted">${esc(purchase.farmerName)} · ${esc(cropName(purchase.crop))} · ${esc(purchase.quantity)} ${t("quintal_short")} · ${t("expected_amount")}: ${fmtINR(purchase.amount)}</p>
+      <div class="field"><label for="mp-amount">${t("paid_amount_label")}</label><input id="mp-amount" inputmode="decimal" value="${purchase.amount}" placeholder="${t("enter_amount")}"></div>
+      <div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`,
+    confirmText: t("mark_payment"), cancelText: t("cancel"),
+    getData: (root) => ({ amount: parsePositive2dp(root.querySelector("#mp-amount").value, 10000000) }),
+    validate: (d) => (d.amount == null ? t("err_invalid_input") : null),
+    onConfirm: async (d) => {
+      try {
+        if (navigator.onLine === false) throw ksError("unavailable", "browser reports offline");
+        await withTimeout(updateDoc(doc(db, collName, purchase.id), {
+          paymentStatus: nextStatus, paidAmount: d.amount, paidAt: serverTimestamp(), paidBy: store.user.uid,
+        }), OP_TIMEOUT_MS);
+        showToast(t("payment_marked_confirmation").replace("{amount}", Number(d.amount).toLocaleString("en-IN")));
+      } catch (e) {
+        console.error("[openMarkPaymentModal] error.code:", e && e.code, "| message:", e && e.message);
+        showToast(t(simpleErrorKey(e)));
+      }
+    },
+  });
+}
+
+/* ------------------------------------------------------------------
+   Government running announcement ticker — shown at the top of every
+   real dashboard (Farmer/Center/Government), driven by onSnapshot() on
+   the /announcements collection so it appears/disappears live with no
+   refresh. Only 'active' (and not-yet-expired) announcements show.
+------------------------------------------------------------------ */
+function tickerHtml(rows) {
+  if (!rows.length) return "";
+  const text = rows.map((a) => esc(a.message)).join("      •      ");
+  return `<div class="ks-ticker" role="status"><div class="ks-ticker-track"><span>${text}</span><span aria-hidden="true">${text}</span></div></div>`;
+}
+function subscribeAnnouncementTicker() {
+  const q1 = query(collection(db, "announcements"), where("active", "==", true), orderBy("createdAt", "desc"), limit(5));
+  store._unsub.ticker = onSnapshot(q1, (qs) => {
+    const now = Date.now();
+    const rows = qs.docs.map((d) => d.data()).filter((a) => !a.expiresAt || !a.expiresAt.toMillis || a.expiresAt.toMillis() > now);
+    const slot = document.getElementById("ks-ticker");
+    if (slot) slot.innerHTML = tickerHtml(rows);
+  }, () => { const slot = document.getElementById("ks-ticker"); if (slot) slot.innerHTML = ""; });
+}
+
 /* ============================== government views ============================== */
 function govBody() {
   const tab = store.govTab;
-  if (tab === "overview") return `<h2 class="section-title">${t("overview_title")}</h2><div id="gov-overview">${loadingBlock()}</div>`;
+  if (tab === "overview") return `<h2 class="section-title">${t("overview_title")}</h2><div id="gov-overview">${loadingBlock()}</div><div id="gov-today-collection" class="mt-2">${loadingBlock()}</div>`;
   if (tab === "centers") return `<h2 class="section-title">${t("nav_centers")}</h2><div id="gov-centers">${loadingBlock()}</div>`;
   if (tab === "farmers") return `<h2 class="section-title">${t("registered_farmers")}</h2><div id="gov-farmers">${loadingBlock()}</div>`;
   if (tab === "register") return govRegisterForm();
+  if (tab === "announce") return `<div class="row gap-s"><h2 class="section-title" style="margin:0">${t("announcements_title")}</h2><span class="spacer"></span>
+      <button class="btn gold" id="new-announcement">${ic("plus", 16)}${t("create_announcement")}</button></div>
+    <div id="gov-announcements">${loadingBlock()}</div>`;
   if (tab === "alerts") return `<h2 class="section-title">${t("alerts_title")}</h2><div id="gov-alerts">${loadingBlock()}</div>`;
   if (tab === "settings") return `<div class="alert">${ic("info")}<span>${t("gov_password_note")}</span></div>`;
   return "";
@@ -2418,6 +2671,47 @@ function subscribeGovOverview() {
     loadGovFarmerCount();
     loadGovTodayPurchaseCount();
   });
+  subscribeGovTodayCollection();
+}
+
+/* Government "Today's Center Collection": real-time (onSnapshot) roll-up
+   of today's actual /purchases records, grouped client-side by centerId —
+   no fake/static numbers, no Cloud Function. district comes from a plain
+   getDocs() read of /centers (Government has list access there), just to
+   label each row; the totals themselves come only from real purchases. */
+function subscribeGovTodayCollection() {
+  const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+  const q1 = query(collection(db, "purchases"), where("purchaseDate", ">=", Timestamp.fromDate(startOfDay)));
+  const renderEmpty = () => paint("gov-today-collection", `<h3 class="section-title">${t("today_collection_title")}</h3>${emptyState("chart", t("no_collection_today"), "")}`);
+  store._unsub.govTodayCollection = onSnapshot(q1, async (qs) => {
+    if (qs.empty) { renderEmpty(); return; }
+    const byCenter = new Map();
+    qs.docs.forEach((docSnap) => {
+      const p = docSnap.data();
+      const key = p.centerId || "?";
+      const entry = byCenter.get(key) || { centerId: key, centerName: p.centerName, qty: 0, count: 0, amount: 0 };
+      entry.qty += Number(p.quantity) || 0;
+      entry.count += 1;
+      entry.amount += Number(p.amount) || 0;
+      byCenter.set(key, entry);
+    });
+    let centersMeta = {};
+    try {
+      const csnap = await getDocs(collection(db, "centers"));
+      csnap.docs.forEach((d) => { centersMeta[d.id] = d.data(); });
+    } catch (_) { /* district column falls back to "—" below */ }
+    const list = Array.from(byCenter.values()).sort((a, b) => b.amount - a.amount);
+    paint("gov-today-collection", `<h3 class="section-title">${t("today_collection_title")}</h3>
+      <div class="card table-wrap"><table><tr>
+        <th>${t("col_center")}</th><th>${t("col_district")}</th><th>${t("col_today_qty")}</th><th>${t("col_today_purchases")}</th><th>${t("col_today_amount")}</th>
+      </tr>${list.map((r) => `<tr>
+        <td>${esc((centersMeta[r.centerId] && centersMeta[r.centerId].centerName) || r.centerName || r.centerId)}</td>
+        <td>${esc((centersMeta[r.centerId] && centersMeta[r.centerId].district) || t("not_available"))}</td>
+        <td>${r.qty.toFixed(2)} ${t("quintal_short")}</td>
+        <td>${r.count}</td>
+        <td>${fmtINR(r.amount)}</td>
+      </tr>`).join("")}</table></div>`);
+  }, renderEmpty);
 }
 /* Real counts via Firestore's count() aggregation (one aggregation read,
    no Cloud Function needed — works on the Spark plan). Firestore rules
@@ -2641,8 +2935,77 @@ function subscribeGovAlerts() {
   }, () => { paymentAlertsHtml = ""; render(); });
 }
 
+/* ------------------------------------------------------------------
+   Government-only announcement management (create / activate /
+   deactivate). Firestore rules restrict create/update on this
+   collection to an active Government caller only (see firestore.rules)
+   — Farmer/Center only ever get read access to active announcements,
+   enforced there too, never just in this UI.
+------------------------------------------------------------------ */
+function openCreateAnnouncementModal() {
+  openModal({
+    title: t("create_announcement"),
+    body: `<div class="field"><label for="an-msg">${t("announcement_message")}</label><textarea id="an-msg" rows="3" maxlength="300"></textarea></div>
+      <button type="button" class="btn ghost" id="an-quick-closed" style="margin:4px 0 10px">${t("all_centers_closed_today")}</button>
+      <div class="field"><label for="an-expiry">${t("announcement_expiry")}</label><input id="an-expiry" type="datetime-local"></div>
+      <div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`,
+    confirmText: t("publish_announcement"), cancelText: t("cancel"),
+    onOpen: (root) => {
+      const quick = root.querySelector("#an-quick-closed");
+      if (quick) quick.addEventListener("click", () => {
+        root.querySelector("#an-msg").value = store.lang === "hi"
+          ? "⚠ सरकारी सूचना: आज सभी राशन केंद्र बंद रहेंगे।"
+          : "⚠ Government Notice: All ration centers will remain closed today.";
+      });
+    },
+    getData: (root) => ({
+      message: root.querySelector("#an-msg").value.trim().slice(0, 300),
+      expiry: root.querySelector("#an-expiry").value,
+    }),
+    validate: (d) => (!d.message ? t("field_required") : null),
+    onConfirm: async (d) => {
+      try {
+        if (navigator.onLine === false) throw ksError("unavailable", "browser reports offline");
+        await withTimeout(setDoc(doc(collection(db, "announcements")), {
+          message: d.message, active: true, createdBy: store.user.uid, createdAt: serverTimestamp(),
+          expiresAt: d.expiry ? Timestamp.fromDate(new Date(d.expiry)) : null,
+        }), OP_TIMEOUT_MS);
+        showToast(t("announcement_created"));
+      } catch (e) {
+        console.error("[openCreateAnnouncementModal] error.code:", e && e.code, "| message:", e && e.message);
+        showToast(t(simpleErrorKey(e)));
+      }
+    },
+  });
+}
+function subscribeGovAnnouncements() {
+  const q1 = query(collection(db, "announcements"), orderBy("createdAt", "desc"), limit(20));
+  store._unsub.govAnnouncements = onSnapshot(q1, (qs) => {
+    const newBtn = document.getElementById("new-announcement");
+    if (newBtn) newBtn.onclick = openCreateAnnouncementModal;
+    if (qs.empty) { paint("gov-announcements", emptyState("bell", t("no_announcements"), "")); return; }
+    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+    paint("gov-announcements", `<div class="card">${rows.map((a) => {
+      const date = a.createdAt?.toDate ? a.createdAt.toDate().toLocaleString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
+      return `<div class="history-item" style="flex-direction:column;align-items:stretch">
+        <div class="row gap-s"><span>${esc(a.message)}</span><span class="spacer"></span><span class="badge ${a.active ? "green" : "muted"}">${a.active ? t("announcement_active") : t("announcement_inactive")}</span></div>
+        <div class="tiny muted">${date}</div>
+        <div class="row gap-s mt-1">
+          <button class="btn ${a.active ? "ghost" : ""}" data-toggle-announcement="${a.id}" data-next="${a.active ? "false" : "true"}">${a.active ? t("deactivate_announcement") : t("activate")}</button>
+        </div>
+      </div>`;
+    }).join("")}</div>`);
+    document.querySelectorAll("[data-toggle-announcement]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      try { await updateDoc(doc(db, "announcements", b.dataset.toggleAnnouncement), { active: b.dataset.next === "true" }); showToast(t("saved")); }
+      catch (_) { showToast(t("network_error")); b.disabled = false; }
+    }));
+  }, () => paint("gov-announcements", emptyState("bell", t("no_announcements"), "")));
+}
+
 /* ============================== attach/detach live listeners on nav ============================== */
 function attachRoleListeners() {
+  subscribeAnnouncementTicker();
   const role = store.profile.role;
   if (role === "farmer") {
     if (store.farmerTab === "home") subscribeFarmerHome();
@@ -2653,6 +3016,7 @@ function attachRoleListeners() {
     if (store.farmerTab === "settings") wireFarmerSettings();
   } else if (role === "center") {
     if (store.centerTab === "queue") subscribeCenterQueue();
+    if (store.centerTab === "pending") subscribeCenterPending();
     if (store.centerTab === "capacity") subscribeCenterCapacity();
     if (store.centerTab === "payments") subscribeCenterPayments();
     if (store.centerTab === "notif") subscribeCenterNotif();
@@ -2662,6 +3026,7 @@ function attachRoleListeners() {
     if (store.govTab === "centers") subscribeGovCenters();
     if (store.govTab === "farmers") subscribeGovFarmers();
     if (store.govTab === "register") wireGovRegister();
+    if (store.govTab === "announce") subscribeGovAnnouncements();
     if (store.govTab === "alerts") subscribeGovAlerts();
   }
 }

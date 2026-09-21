@@ -575,7 +575,39 @@ service cloud.firestore {
         || isActiveGov();
 
       allow create: if signedIn() && validPurchase(purchaseId);
-      allow update, delete: if false;
+
+      // ---- Payment lifecycle (spec items 7-11) ----
+      // Center > Pending Payment > "Mark Payment": moves its OWN purchase
+      // from 'pending' to 'processing' and records the actual amount paid.
+      // Nothing else about the purchase (crop/quantity/farmer/etc.) can
+      // change through this path.
+      function centerMarksPaid() {
+        let d = request.resource.data;
+        return isActiveCenter()
+          && resource.data.centerId == callerCenterId()
+          && resource.data.paymentStatus == 'pending'
+          && onlyChanged(['paymentStatus', 'paidAmount', 'paidAt', 'paidBy'])
+          && d.paymentStatus == 'processing'
+          && d.paidAmount is number && d.paidAmount > 0 && d.paidAmount <= 10000000
+          && d.paidAt == request.time
+          && d.paidBy == request.auth.uid;
+      }
+      // Farmer > Purchase history > "Payment Received": the farmer who
+      // owns this purchase explicitly confirms it, moving 'processing' to
+      // 'confirmed'. ("Payment Not Received" instead opens the existing
+      // paymentRequests issue-report flow and does not touch this doc.)
+      function farmerConfirmsPaid() {
+        let d = request.resource.data;
+        return isActiveFarmer()
+          && resource.data.farmerId == request.auth.uid
+          && resource.data.paymentStatus == 'processing'
+          && onlyChanged(['paymentStatus', 'confirmedAt', 'confirmedBy'])
+          && d.paymentStatus == 'confirmed'
+          && d.confirmedAt == request.time
+          && d.confirmedBy == request.auth.uid;
+      }
+      allow update: if centerMarksPaid() || farmerConfirmsPaid();
+      allow delete: if false;
     }
 
     // ------------------------------------------------------------------
@@ -628,7 +660,23 @@ service cloud.firestore {
       allow get: if (isActiveCenter() && resource.data.centerId == callerCenterId()) || isActiveGov();
       allow list: if (isActiveCenter() && resource.data.centerId == callerCenterId()) || isActiveGov();
       allow create: if signedIn() && validLocalPurchase();
-      allow update, delete: if false;
+
+      // Center > Pending Payment > "Mark Payment" for a local/walk-in
+      // entry: pending -> paid directly. A local purchase has no
+      // guaranteed linked farmer Auth account (farmerId is optional — see
+      // validLocalPurchase() above), so there is no one to send a
+      // confirmation prompt to; marking it paid here is therefore final.
+      allow update: if isActiveCenter()
+        && resource.data.centerId == callerCenterId()
+        && resource.data.paymentStatus == 'pending'
+        && onlyChanged(['paymentStatus', 'paidAmount', 'paidAt', 'paidBy'])
+        && request.resource.data.paymentStatus == 'paid'
+        && request.resource.data.paidAmount is number
+        && request.resource.data.paidAmount > 0
+        && request.resource.data.paidAmount <= 10000000
+        && request.resource.data.paidAt == request.time
+        && request.resource.data.paidBy == request.auth.uid;
+      allow delete: if false;
     }
 
     // Notifications. A center may NOT write free text to a farmer: the only
@@ -732,6 +780,46 @@ service cloud.firestore {
           && onlyChanged(['status'])
           && request.resource.data.status in ['acknowledged', 'under_review', 'resolved'])
       );
+
+      allow delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Government-created running announcements (spec items 13-15), e.g.
+    // "All centers closed today". Farmer/Center get READ-ONLY access to
+    // active ones (for the top ticker); only an active Government caller
+    // may ever create/update one. Never the broad
+    // `allow read, write: if request.auth != null;` pattern.
+    // ------------------------------------------------------------------
+    match /announcements/{id} {
+      function validAnnouncement() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['message', 'active', 'createdBy', 'createdAt', 'expiresAt'])
+          && d.keys().hasOnly(['message', 'active', 'createdBy', 'createdAt', 'expiresAt'])
+          && d.message is string && d.message.size() > 0 && d.message.size() <= 300
+          && d.active == true
+          && d.createdBy == request.auth.uid
+          && d.createdAt == request.time
+          && (d.expiresAt == null || d.expiresAt is timestamp);
+      }
+
+      // Any signed-in, active app user may read announcements (this is
+      // what powers the ticker on every dashboard) — but only ACTIVE ones
+      // for Farmer/Center; Government can also read inactive ones (its
+      // own management list).
+      allow get: if isActiveGov()
+        || ((isActiveFarmer() || isActiveCenter()) && resource.data.active == true);
+      allow list: if isActiveGov()
+        || ((isActiveFarmer() || isActiveCenter()) && request.query.limit <= 5);
+
+      allow create: if isActiveGov() && validAnnouncement();
+
+      // Government may only ever flip `active` after creation — the
+      // message/expiry/author of a published announcement can't be
+      // silently rewritten later.
+      allow update: if isActiveGov()
+        && onlyChanged(['active'])
+        && request.resource.data.active is bool;
 
       allow delete: if false;
     }

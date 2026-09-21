@@ -103,6 +103,23 @@ p { margin: 0 0 8px; }
 /* ---------- layout shells ---------- */
 #app { min-height: 100vh; display: flex; flex-direction: column; }
 
+.ks-ticker {
+  overflow: hidden; background: var(--danger-c); color: #fff;
+  padding: 7px 0; font-size: 13px; font-weight: 600; white-space: nowrap;
+}
+.ks-ticker-track {
+  display: inline-flex; width: max-content;
+  animation: ks-ticker-scroll 22s linear infinite;
+}
+.ks-ticker-track span { padding-right: 48px; }
+@keyframes ks-ticker-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ks-ticker-track { animation: none; overflow-x: auto; }
+}
+
 .topbar {
   position: sticky; top: 0; z-index: 30;
   display: flex; align-items: center; gap: 14px;

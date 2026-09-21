@@ -74,78 +74,49 @@
     "state": {
       "code": "9",
       "name_en": "UTTAR PRADESH",
-      "district": {
-        "code": "130",
-        "name_en": "BAREILLY",
-        "blocks": [
-          {
-            "code": "959",
-            "name_en": "AALAMPUR JAFARABAD"
-          },
-          {
-            "code": "960",
-            "name_en": "BAHERI"
-          },
-          {
-            "code": "961",
-            "name_en": "BHADPURA"
-          },
-          {
-            "code": "962",
-            "name_en": "BHOJIPURA"
-          },
-          {
-            "code": "963",
-            "name_en": "BHUTA"
-          },
-          {
-            "code": "964",
-            "name_en": "BITHIRI CHAINPUR"
-          },
-          {
-            "code": "965",
-            "name_en": "DAMKHAUDA"
-          },
-          {
-            "code": "966",
-            "name_en": "FARIDPUR"
-          },
-          {
-            "code": "967",
-            "name_en": "FATEHGANJ WEST"
-          },
-          {
-            "code": "968",
-            "name_en": "KYARA"
-          },
-          {
-            "code": "969",
-            "name_en": "MAJHGAWAN"
-          },
-          {
-            "code": "970",
-            "name_en": "MIRGANJ"
-          },
-          {
-            "code": "971",
-            "name_en": "NAWABGANJ"
-          },
-          {
-            "code": "972",
-            "name_en": "RAMNAGAR"
-          },
-          {
-            "code": "973",
-            "name_en": "SHERGARH"
-          }
-        ],
-        "villages": []
-      }
+      "districts": [
+        {
+          "code": "130",
+          "name_en": "BAREILLY",
+          "blocks": [
+            { "code": "959", "name_en": "AALAMPUR JAFARABAD" },
+            { "code": "960", "name_en": "BAHERI" },
+            { "code": "961", "name_en": "BHADPURA" },
+            { "code": "962", "name_en": "BHOJIPURA" },
+            { "code": "963", "name_en": "BHUTA" },
+            { "code": "964", "name_en": "BITHIRI CHAINPUR" },
+            { "code": "965", "name_en": "DAMKHAUDA" },
+            { "code": "966", "name_en": "FARIDPUR" },
+            { "code": "967", "name_en": "FATEHGANJ WEST" },
+            { "code": "968", "name_en": "KYARA" },
+            { "code": "969", "name_en": "MAJHGAWAN" },
+            { "code": "970", "name_en": "MIRGANJ" },
+            { "code": "971", "name_en": "NAWABGANJ" },
+            { "code": "972", "name_en": "RAMNAGAR" },
+            { "code": "973", "name_en": "SHERGARH" }
+          ],
+          "villages": []
+        },
+        {
+          "code": "131",
+          "name_en": "BADAUN",
+          "_note": "Block set below is a small, sensible development sample (Badaun town/tehsil plus 4 more real tehsil/block names), not a claim of full LGD block coverage for this district. Replace with a verified LGD import before production use.",
+          "blocks": [
+            { "code": "9801", "name_en": "BADAUN" },
+            { "code": "9802", "name_en": "BILSI" },
+            { "code": "9803", "name_en": "BISAULI" },
+            { "code": "9804", "name_en": "DATAGANJ" },
+            { "code": "9805", "name_en": "SAHASWAN" }
+          ],
+          "villages": []
+        }
+      ]
     }
   },
   "integration_notes": [
     "Do not treat development_sample as the full location database.",
     "Village options should remain empty until verified village-level data is imported.",
-    "Keep the adapter independent from signup UI so the data source can be replaced later without changing form logic."
+    "Keep the adapter independent from signup UI so the data source can be replaced later without changing form logic.",
+    "development_sample.state.districts is a LIST — add further districts as additional entries here, never as a second top-level state block."
   ]
 }
