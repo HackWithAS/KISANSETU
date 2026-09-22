@@ -723,9 +723,11 @@ service cloud.firestore {
     // ------------------------------------------------------------------
     // Payment / issue requests a farmer raises against one of their own
     // real purchases (purchases/{purchaseId}, the token-linked collection
-    // above). Routed either to the Center that made the purchase or to
-    // Government. Spark-plan: onSnapshot() gives both dashboards a live
-    // alert with no Cloud Function / polling needed.
+    // above). Every request is visible to BOTH the Center that made the
+    // purchase AND Government — requestedTo is a fixed 'both' value, not
+    // a farmer-chosen destination, so neither side is ever silently left
+    // out. Spark-plan: onSnapshot() gives both dashboards a live alert
+    // with no Cloud Function / polling needed.
     // ------------------------------------------------------------------
     match /paymentRequests/{id} {
       function validPaymentRequest() {
@@ -755,25 +757,26 @@ service cloud.firestore {
           && d.amount == p.amount
           && d.issueType in ['payment_delayed', 'incorrect_amount', 'quantity_issue', 'other']
           && d.description is string && d.description.size() <= 500
-          && d.requestedTo in ['center', 'gov']
+          && d.requestedTo == 'both'
           && d.status == 'open'
           && d.createdAt == request.time;
       }
 
       allow get: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
-        || (isActiveCenter() && resource.data.requestedTo == 'center' && resource.data.centerId == callerCenterId())
+        || (isActiveCenter() && resource.data.centerId == callerCenterId())
         || isActiveGov();
 
       allow list: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
-        || (isActiveCenter() && resource.data.requestedTo == 'center' && resource.data.centerId == callerCenterId())
+        || (isActiveCenter() && resource.data.centerId == callerCenterId())
         || isActiveGov();
 
       allow create: if signedIn() && validPaymentRequest();
 
-      // The Center (only when the request was routed to it) or Government
-      // may move the status forward — nothing else on the document changes.
+      // Every payment request is visible to BOTH its own Center and
+      // Government (spec item 4/17) — either may move the status
+      // forward; nothing else on the document changes.
       allow update: if (
-        (isActiveCenter() && resource.data.requestedTo == 'center' && resource.data.centerId == callerCenterId()
+        (isActiveCenter() && resource.data.centerId == callerCenterId()
           && onlyChanged(['status'])
           && request.resource.data.status in ['acknowledged', 'under_review', 'resolved'])
         || (isActiveGov()

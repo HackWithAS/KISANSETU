@@ -202,6 +202,8 @@ const I18N = {
     announcement_active: "सक्रिय", announcement_inactive: "निष्क्रिय", announcement_expiry: "समाप्ति तिथि/समय (वैकल्पिक)",
     all_centers_closed_today: "आज सभी केंद्र बंद रहेंगे", publish_announcement: "प्रकाशित करें", deactivate_announcement: "निष्क्रिय करें",
     no_announcements: "कोई घोषणा नहीं", announcement_created: "घोषणा प्रकाशित हुई",
+    time_unavailable: "समय अनुपलब्ध", share_location: "स्थान साझा करें", activate: "सक्रिय करें", token_id_label: "टोकन",
+    issue_reaches_both: "यह शिकायत केंद्र और शासन दोनों को दिखेगी।",
   },
   en: {
     brand: "Kisan Setu", tagline: "Connecting farmers and procurement centers, simply.",
@@ -346,6 +348,8 @@ const I18N = {
     announcement_active: "Active", announcement_inactive: "Inactive", announcement_expiry: "Expiry date/time (optional)",
     all_centers_closed_today: "All centers closed today", publish_announcement: "Publish", deactivate_announcement: "Deactivate",
     no_announcements: "No announcements", announcement_created: "Announcement published",
+    time_unavailable: "Time unavailable", share_location: "Share location", activate: "Activate", token_id_label: "Token",
+    issue_reaches_both: "This report is visible to both the Center and Government.",
   },
 };
 function t(key) { return (I18N[store.lang] && I18N[store.lang][key]) || I18N.hi[key] || key; }
@@ -459,6 +463,18 @@ function paintModal() {
 function paint(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 function fmtINR(n) { return "₹" + Number(n || 0).toLocaleString("en-IN"); }
+
+/* Single reusable date+time formatter for every notification/alert card
+   (spec: "21 Sep 2026, 05:42 PM" style, safe fallback, never crashes on a
+   missing/pending server timestamp). */
+function fmtDateTime(ts) {
+  if (!ts || typeof ts.toDate !== "function") return t("time_unavailable");
+  try {
+    return ts.toDate().toLocaleString(store.lang === "hi" ? "hi-IN" : "en-IN", {
+      day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+  } catch (_) { return t("time_unavailable"); }
+}
 
 /* ============================== token / purchase helpers ==============================
    Limits below are MIRRORED in firestore.rules — change both together. */
@@ -1584,10 +1600,18 @@ function subscribeFarmerHome() {
         c.tokenAvailability = typeof c.capacity === "number" ? Math.max(0, c.capacity - (c.queueLength || 0)) : null;
         return c;
       });
-      paint("farmer-home", `${farmerProfileCardHtml(farmer)}<h2 class="section-title">${t("nearby_centers")}</h2>${renderNearbyCenters(centers)}`);
+      // Item 8 fix: the Farmer dashboard must NOT permanently show the
+      // full Profile Card (that's avatar -> My Profile only, see
+      // openProfileModal). Home just gets a small nudge to share location
+      // when it's missing, since Nearest sorting depends on it.
+      const locPrompt = (typeof farmer.latitude === "number" && typeof farmer.longitude === "number") ? "" : `
+        <div class="alert warn"><span>${t("distance_unavailable")}</span>
+          <button class="btn ghost tiny" id="farmer-home-update-location" style="margin-left:auto">${ic("mapPin", 14)}${t("share_location")}</button>
+        </div>`;
+      paint("farmer-home", `${locPrompt}<h2 class="section-title">${t("nearby_centers")}</h2>${renderNearbyCenters(centers)}`);
       document.querySelectorAll("[data-sort]").forEach((b) => b.addEventListener("click", () => { store.sortBy = b.dataset.sort; subscribeFarmerHome(); }));
       document.querySelectorAll("[data-book]").forEach((b) => b.addEventListener("click", () => startBooking(b.dataset.book, centers.find((c) => c.id === b.dataset.book))));
-      const locBtn = document.getElementById("farmer-update-location");
+      const locBtn = document.getElementById("farmer-home-update-location");
       if (locBtn) locBtn.addEventListener("click", async () => {
         locBtn.disabled = true;
         const loc = await tryGetLocation();
@@ -1826,7 +1850,6 @@ function subscribeFarmerHistory() {
     if (qs.empty) { paint("farmer-history", emptyState("history", t("no_history"), t("no_history_desc"))); return; }
     const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
     paint("farmer-history", `<div class="card">${rows.map((p) => {
-      const date = p.purchaseDate?.toDate ? p.purchaseDate.toDate().toLocaleDateString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
       const badgeCls = p.paymentStatus === "confirmed" || p.paymentStatus === "paid" ? "green" : p.paymentStatus === "processing" ? "gold" : "muted";
       const badgeLabel = t(p.paymentStatus || "pending");
       // 'processing' = the Center has marked this paid but the farmer has
@@ -1844,7 +1867,7 @@ function subscribeFarmerHistory() {
       return `<div class="history-item" style="flex-direction:column;align-items:stretch">
         <div class="row gap-s" style="width:100%">
           <div>
-            <div class="row gap-s"><b>${esc(cropName(p.crop))}</b><span class="tiny muted">${date}</span></div>
+            <div class="row gap-s"><b>${esc(cropName(p.crop))}</b><span class="tiny muted">${fmtDateTime(p.purchaseDate)}</span></div>
             <div class="tiny muted">${esc(p.centerName || p.centerId)} · ${esc(p.quantity)} · ${t("grade")}: ${esc(p.grade || "—")}</div>
             ${p.paymentStatus !== "processing" ? `<button class="btn ghost tiny mt-1" data-report-issue="${p.id}">${t("payment_issue")}</button>` : ""}
           </div>
@@ -1870,7 +1893,7 @@ function subscribeFarmerHistory() {
         b.disabled = false;
       }
     }));
-  }, () => paint("farmer-history", emptyState("history", t("no_history"), t("no_history_desc"))));
+  }, (err) => { console.error("[subscribeFarmerHistory] error.code:", err && err.code, "| message:", err && err.message); paint("farmer-history", emptyState("history", t("no_history"), t("no_history_desc"))); });
 }
 
 /* Real payment/issue report against a real purchase the farmer actually
@@ -1895,17 +1918,12 @@ async function openPaymentIssueModal(purchase) {
           <option value="quantity_issue">${t("issue_quantity_issue")}</option>
           <option value="other">${t("issue_other")}</option>
         </select></div>
-      <div class="field"><label for="pi-route">${t("issue_route_to")}</label>
-        <select id="pi-route" required>
-          <option value="center">${t("route_center")}</option>
-          <option value="gov">${t("route_gov")}</option>
-        </select></div>
       <div class="field"><label for="pi-desc">${t("issue_description")}</label><textarea id="pi-desc" rows="3" maxlength="500"></textarea></div>
+      <p class="tiny muted">${t("issue_reaches_both")}</p>
       <div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`,
     confirmText: t("submit"), cancelText: t("cancel"),
     getData: (root) => ({
       issueType: root.querySelector("#pi-type").value,
-      requestedTo: root.querySelector("#pi-route").value,
       description: root.querySelector("#pi-desc").value.trim().slice(0, 500),
     }),
     onConfirm: async (d) => {
@@ -1916,7 +1934,10 @@ async function openPaymentIssueModal(purchase) {
           centerId: purchase.centerId, centerName: purchase.centerName,
           issueType: d.issueType, description: d.description,
           purchaseId: purchase.id, crop: purchase.crop, quantity: purchase.quantity, amount: purchase.amount,
-          requestedTo: d.requestedTo, status: "open", createdAt: serverTimestamp(),
+          // Always visible to BOTH the owning Center and Government — the
+          // farmer no longer has to choose a single destination, and
+          // neither side is ever silently left out (spec item 4).
+          requestedTo: "both", status: "open", createdAt: serverTimestamp(),
         }), OP_TIMEOUT_MS);
         showToast(t("request_sent"));
       } catch (e) {
@@ -1936,7 +1957,7 @@ function subscribeFarmerNotif() {
       // "token_served" notifications carry structured fields only (a center
       // can't write free text to a farmer); the sentence is built here.
       const text = n.type === "token_served" ? t("notif_token_served").replace("{center}", n.centerName || "") : n.text;
-      return `<div class="history-item"><span>${esc(text)}</span></div>`;
+      return `<div class="history-item" style="flex-direction:column;align-items:stretch"><span>${esc(text)}</span><span class="tiny muted">${fmtDateTime(n.createdAt)}</span></div>`;
     }).join("")}</div>`);
   }, () => paint("farmer-notif", emptyState("bell", t("no_notifications"), t("no_notifications_desc"))));
 }
@@ -2477,7 +2498,10 @@ function subscribeCenterNotif() {
   const q1 = query(collection(db, "notifications"), where("userId", "==", store.user.uid), orderBy("createdAt", "desc"), limit(20));
   store._unsub.centerNotif = onSnapshot(q1, (qs) => {
     if (qs.empty) { paint("center-notif", emptyState("bell", t("no_notifications"), t("no_notifications_desc"))); return; }
-    paint("center-notif", `<div class="card">${qs.docs.map((d) => `<div class="history-item"><span>${esc(d.data().text)}</span></div>`).join("")}</div>`);
+    paint("center-notif", `<div class="card">${qs.docs.map((d) => {
+      const n = d.data();
+      return `<div class="history-item" style="flex-direction:column;align-items:stretch"><span>${esc(n.text || "")}</span><span class="tiny muted">${fmtDateTime(n.createdAt)}</span></div>`;
+    }).join("")}</div>`);
   }, () => paint("center-notif", emptyState("bell", t("no_notifications"), t("no_notifications_desc"))));
 }
 
@@ -2488,23 +2512,25 @@ function paymentStatusBadge(status) {
 }
 
 /* Center's real-time payment-issue inbox: onSnapshot() on paymentRequests
-   routed to this center only (rules pin requestedTo=='center' AND
-   centerId==this center — a center can never see another center's
-   requests, or ones routed to Government). */
+   for this center's own centerId only (rules pin centerId==this center —
+   a center can never see another center's requests). Every payment
+   issue a farmer raises is visible to BOTH its center and Government
+   (requestedTo is fixed to 'both'; see firestore.rules), so this list is
+   not filtered by routing. No orderBy in the query itself — sorting is
+   done client-side below so this never depends on a composite index
+   being created in the Firebase console. */
 function subscribeCenterPayments() {
-  const q1 = query(collection(db, "paymentRequests"),
-    where("centerId", "==", store.profile.centerId), where("requestedTo", "==", "center"),
-    orderBy("createdAt", "desc"), limit(30));
+  const q1 = query(collection(db, "paymentRequests"), where("centerId", "==", store.profile.centerId), limit(30));
   store._unsub.centerPayments = onSnapshot(q1, (qs) => {
     if (qs.empty) { paint("center-payments", emptyState("alert", t("no_payment_requests"), "")); return; }
-    paint("center-payments", `<div class="card">${qs.docs.map((d) => {
-      const r = { id: d.id, ...d.data() };
-      const date = r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
+    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    paint("center-payments", `<div class="card">${rows.map((r) => {
       return `<div class="history-item" style="flex-direction:column;align-items:stretch">
         <div class="row gap-s"><b>${esc(r.farmerName)}</b><span class="tiny muted">${esc(r.farmerMobile)}</span><span class="spacer"></span>${paymentStatusBadge(r.status)}</div>
         <div class="tiny muted">${t("issue_type")}: ${t("issue_" + r.issueType)} · ${esc(cropName(r.crop))} · ${esc(r.quantity)} ${t("quintal_short")} · ${fmtINR(r.amount)}</div>
         ${r.description ? `<div class="tiny">${esc(r.description)}</div>` : ""}
-        <div class="tiny muted">${date}</div>
+        <div class="tiny muted">${fmtDateTime(r.createdAt)}</div>
         <div class="row gap-s mt-1">
           <button class="btn ghost" data-pay-status="${r.id}" data-status="acknowledged" ${r.status !== "open" ? "disabled" : ""}>${t("acknowledge")}</button>
           <button class="btn ghost" data-pay-status="${r.id}" data-status="under_review" ${r.status === "resolved" ? "disabled" : ""}>${t("under_review_action")}</button>
@@ -2533,14 +2559,13 @@ function subscribeCenterPayments() {
 ------------------------------------------------------------------ */
 function subscribeCenterPending() {
   let tokenRows = null, localRows = null;
-  const fmtDate = (p) => (p.purchaseDate?.toDate ? p.purchaseDate.toDate().toLocaleDateString(store.lang === "hi" ? "hi-IN" : "en-IN") : "");
   const render = () => {
     if (tokenRows === null || localRows === null) return; // wait for both first snapshots
     const rows = [...tokenRows, ...localRows].sort((a, b) => (b.purchaseDate?.toMillis?.() || 0) - (a.purchaseDate?.toMillis?.() || 0));
     if (!rows.length) { paint("center-pending", emptyState("ticket", t("no_pending_payments"), t("pending_payment_desc"))); return; }
     paint("center-pending", `<div class="card">${rows.map((p) => `<div class="history-item"><div>
-          <div class="row gap-s"><b>${esc(p.farmerName)}</b><span class="tiny muted">${fmtDate(p)}</span>${p._source === "local" ? `<span class="badge muted">${t("add_local_purchase")}</span>` : ""}</div>
-          <div class="tiny muted">${esc(cropName(p.crop))} · ${esc(p.quantity)} ${t("quintal_short")} · ${t("rate_per_quintal")}: ${fmtINR(p.rate)}</div>
+          <div class="row gap-s"><b>${esc(p.farmerName)}</b><span class="tiny muted">${fmtDateTime(p.purchaseDate)}</span>${p._source === "local" ? `<span class="badge muted">${t("add_local_purchase")}</span>` : ""}</div>
+          <div class="tiny muted">${esc(cropName(p.crop))} · ${esc(p.quantity)} ${t("quintal_short")} · ${t("rate_per_quintal")}: ${fmtINR(p.rate)}${p.tokenId ? ` · ${t("token_id_label")}: ${esc(p.tokenId)}` : ""}</div>
           <div class="tiny muted">${t("expected_amount")}: ${fmtINR(p.amount)}</div>
           <button class="btn gold tiny mt-1" data-mark-payment="${p._source}:${p.id}">${t("mark_payment")}</button>
         </div>
@@ -2552,18 +2577,21 @@ function subscribeCenterPending() {
       openMarkPaymentModal(list.find((p) => p.id === id), source);
     }));
   };
+  // No orderBy here on purpose: centerId + paymentStatus is already two
+  // equality filters, and adding orderBy(purchaseDate) on top of that
+  // would require a manual composite index to be created in the Firebase
+  // console before this query would ever return anything — sorting is
+  // instead done client-side above so the list works immediately.
   const q1 = query(collection(db, "purchases"),
-    where("centerId", "==", store.profile.centerId), where("paymentStatus", "==", "pending"),
-    orderBy("purchaseDate", "desc"), limit(50));
+    where("centerId", "==", store.profile.centerId), where("paymentStatus", "==", "pending"), limit(50));
   store._unsub.centerPending = onSnapshot(q1,
     (qs) => { tokenRows = qs.docs.map((d) => ({ id: d.id, _source: "token", ...d.data() })); render(); },
-    () => { tokenRows = []; render(); });
+    (err) => { console.error("[subscribeCenterPending/purchases] error.code:", err && err.code, "| message:", err && err.message); tokenRows = []; render(); });
   const q2 = query(collection(db, "localPurchases"),
-    where("centerId", "==", store.profile.centerId), where("paymentStatus", "==", "pending"),
-    orderBy("purchaseDate", "desc"), limit(50));
+    where("centerId", "==", store.profile.centerId), where("paymentStatus", "==", "pending"), limit(50));
   store._unsub.centerPendingLocal = onSnapshot(q2,
     (qs) => { localRows = qs.docs.map((d) => ({ id: d.id, _source: "local", ...d.data() })); render(); },
-    () => { localRows = []; render(); });
+    (err) => { console.error("[subscribeCenterPending/localPurchases] error.code:", err && err.code, "| message:", err && err.message); localRows = []; render(); });
 }
 
 /* source == "token" -> purchases/{id}, moves pending -> processing and
@@ -2599,10 +2627,14 @@ function openMarkPaymentModal(purchase, source) {
 }
 
 /* ------------------------------------------------------------------
-   Government running announcement ticker — shown at the top of every
-   real dashboard (Farmer/Center/Government), driven by onSnapshot() on
-   the /announcements collection so it appears/disappears live with no
-   refresh. Only 'active' (and not-yet-expired) announcements show.
+   Government running announcement ticker — shown at the top of the
+   Farmer and Center dashboards only (Government manages announcements
+   directly on its own "Announcements" tab and doesn't need the public
+   ticker repeated at the top of its own site). Driven by onSnapshot() on
+   /announcements so it appears/disappears live with no refresh. Only
+   'active' (and not-yet-expired) announcements show. No orderBy in the
+   query — active==true is already one equality filter, and sorting is
+   done client-side so this never depends on a composite index existing.
 ------------------------------------------------------------------ */
 function tickerHtml(rows) {
   if (!rows.length) return "";
@@ -2610,13 +2642,18 @@ function tickerHtml(rows) {
   return `<div class="ks-ticker" role="status"><div class="ks-ticker-track"><span>${text}</span><span aria-hidden="true">${text}</span></div></div>`;
 }
 function subscribeAnnouncementTicker() {
-  const q1 = query(collection(db, "announcements"), where("active", "==", true), orderBy("createdAt", "desc"), limit(5));
+  const q1 = query(collection(db, "announcements"), where("active", "==", true), limit(5));
   store._unsub.ticker = onSnapshot(q1, (qs) => {
     const now = Date.now();
-    const rows = qs.docs.map((d) => d.data()).filter((a) => !a.expiresAt || !a.expiresAt.toMillis || a.expiresAt.toMillis() > now);
+    const rows = qs.docs.map((d) => d.data())
+      .filter((a) => !a.expiresAt || !a.expiresAt.toMillis || a.expiresAt.toMillis() > now)
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     const slot = document.getElementById("ks-ticker");
     if (slot) slot.innerHTML = tickerHtml(rows);
-  }, () => { const slot = document.getElementById("ks-ticker"); if (slot) slot.innerHTML = ""; });
+  }, (err) => {
+    console.error("[subscribeAnnouncementTicker] error.code:", err && err.code, "| message:", err && err.message);
+    const slot = document.getElementById("ks-ticker"); if (slot) slot.innerHTML = "";
+  });
 }
 
 /* ============================== government views ============================== */
@@ -2906,33 +2943,31 @@ function subscribeGovAlerts() {
     render();
   }, () => { centerAlertsHtml = ""; render(); });
 
-  // Real-time payment-request alerts (onSnapshot — no polling) routed to
-  // Government. The unread/pending count is simply "status == open" among
-  // these live documents, so it updates the instant a farmer files one or
-  // Government resolves it — no separate counter document to keep in sync.
-  const q1 = query(collection(db, "paymentRequests"), where("requestedTo", "==", "gov"), orderBy("createdAt", "desc"), limit(30));
+  // Real-time payment-request alerts (onSnapshot — no polling). Government
+  // sees every valid farmer request regardless of center (requestedTo is
+  // always 'both' — see firestore.rules), and there's no orderBy here so
+  // this never depends on a composite index existing in the console.
+  const q1 = query(collection(db, "paymentRequests"), limit(30));
   store._unsub.govAlertsPayments = onSnapshot(q1, (qs) => {
-    const openCount = qs.docs.filter((d) => d.data().status === "open").length;
-    paymentAlertsHtml = qs.empty ? "" : `<div class="card">
+    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    const openCount = rows.filter((r) => r.status === "open").length;
+    paymentAlertsHtml = !rows.length ? "" : `<div class="card">
       <div class="row gap-s"><b>${t("nav_payments")}</b>${openCount ? `<span class="badge red">${openCount}</span>` : ""}</div>
-      ${qs.docs.map((d) => {
-        const r = { id: d.id, ...d.data() };
-        const date = r.createdAt?.toDate ? r.createdAt.toDate().toLocaleString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
-        return `<div class="history-item" style="flex-direction:column;align-items:stretch">
+      ${rows.map((r) => `<div class="history-item" style="flex-direction:column;align-items:stretch">
           <div class="row gap-s"><b>${esc(r.farmerName)}</b><span class="tiny muted">${esc(r.centerName)}</span><span class="spacer"></span>${paymentStatusBadge(r.status)}</div>
           <div class="tiny muted">${t("issue_type")}: ${t("issue_" + r.issueType)} · ${fmtINR(r.amount)}</div>
           ${r.description ? `<div class="tiny">${esc(r.description)}</div>` : ""}
-          <div class="tiny muted">${date}</div>
+          <div class="tiny muted">${fmtDateTime(r.createdAt)}</div>
           <div class="row gap-s mt-1">
             <button class="btn ghost" data-pay-status="${r.id}" data-status="acknowledged" ${r.status !== "open" ? "disabled" : ""}>${t("acknowledge")}</button>
             <button class="btn ghost" data-pay-status="${r.id}" data-status="under_review" ${r.status === "resolved" ? "disabled" : ""}>${t("under_review_action")}</button>
             <button class="btn" data-pay-status="${r.id}" data-status="resolved" ${r.status === "resolved" ? "disabled" : ""}>${t("resolve")}</button>
           </div>
-        </div>`;
-      }).join("")}
+        </div>`).join("")}
     </div>`;
     render();
-  }, () => { paymentAlertsHtml = ""; render(); });
+  }, (err) => { console.error("[subscribeGovAlerts/paymentRequests] error.code:", err && err.code, "| message:", err && err.message); paymentAlertsHtml = ""; render(); });
 }
 
 /* ------------------------------------------------------------------
@@ -2978,35 +3013,49 @@ function openCreateAnnouncementModal() {
     },
   });
 }
+function wireGovAnnouncementButton() {
+  const newBtn = document.getElementById("new-announcement");
+  // Bug fix: previously this button was only ever wired from inside the
+  // onSnapshot() SUCCESS callback below, so if that first read failed for
+  // any reason (offline, a permission hiccup, a slow connection) the
+  // button silently did nothing. It's now wired synchronously the moment
+  // the "Announcements" tab renders, independent of the listener's state.
+  if (newBtn) newBtn.onclick = openCreateAnnouncementModal;
+}
 function subscribeGovAnnouncements() {
+  wireGovAnnouncementButton();
   const q1 = query(collection(db, "announcements"), orderBy("createdAt", "desc"), limit(20));
   store._unsub.govAnnouncements = onSnapshot(q1, (qs) => {
-    const newBtn = document.getElementById("new-announcement");
-    if (newBtn) newBtn.onclick = openCreateAnnouncementModal;
-    if (qs.empty) { paint("gov-announcements", emptyState("bell", t("no_announcements"), "")); return; }
+    wireGovAnnouncementButton();
+    if (qs.empty) { paint("gov-announcements", emptyState("bell", t("no_announcements"), "")); wireGovAnnouncementButton(); return; }
     const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
-    paint("gov-announcements", `<div class="card">${rows.map((a) => {
-      const date = a.createdAt?.toDate ? a.createdAt.toDate().toLocaleString(store.lang === "hi" ? "hi-IN" : "en-IN") : "";
-      return `<div class="history-item" style="flex-direction:column;align-items:stretch">
+    paint("gov-announcements", `<div class="card">${rows.map((a) => `<div class="history-item" style="flex-direction:column;align-items:stretch">
         <div class="row gap-s"><span>${esc(a.message)}</span><span class="spacer"></span><span class="badge ${a.active ? "green" : "muted"}">${a.active ? t("announcement_active") : t("announcement_inactive")}</span></div>
-        <div class="tiny muted">${date}</div>
+        <div class="tiny muted">${fmtDateTime(a.createdAt)}</div>
         <div class="row gap-s mt-1">
           <button class="btn ${a.active ? "ghost" : ""}" data-toggle-announcement="${a.id}" data-next="${a.active ? "false" : "true"}">${a.active ? t("deactivate_announcement") : t("activate")}</button>
         </div>
-      </div>`;
-    }).join("")}</div>`);
+      </div>`).join("")}</div>`);
+    wireGovAnnouncementButton();
     document.querySelectorAll("[data-toggle-announcement]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
       try { await updateDoc(doc(db, "announcements", b.dataset.toggleAnnouncement), { active: b.dataset.next === "true" }); showToast(t("saved")); }
       catch (_) { showToast(t("network_error")); b.disabled = false; }
     }));
-  }, () => paint("gov-announcements", emptyState("bell", t("no_announcements"), "")));
+  }, (err) => {
+    console.error("[subscribeGovAnnouncements] error.code:", err && err.code, "| message:", err && err.message);
+    paint("gov-announcements", emptyState("bell", t("no_announcements"), ""));
+    wireGovAnnouncementButton();
+  });
 }
 
 /* ============================== attach/detach live listeners on nav ============================== */
 function attachRoleListeners() {
-  subscribeAnnouncementTicker();
   const role = store.profile.role;
+  // Ticker is public-notice UI for Farmer/Center only — Government
+  // manages announcements directly on its own tab (spec item 12).
+  if (role !== "gov") subscribeAnnouncementTicker();
+  else { const slot = document.getElementById("ks-ticker"); if (slot) slot.innerHTML = ""; }
   if (role === "farmer") {
     if (store.farmerTab === "home") subscribeFarmerHome();
     if (store.farmerTab === "token") subscribeFarmerToken();
