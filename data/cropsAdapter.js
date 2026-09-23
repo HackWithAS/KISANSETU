@@ -24,13 +24,20 @@ export function getCrops() {
 }
 
 /** Same crops grouped by category, in first-seen category order — for a
- *  friendlier multi-select than one flat 45-item list. */
+ *  friendlier multi-select than one flat 45-item list. categoryHi comes
+ *  from crops.json's own category_translations map (falls back to the
+ *  English name if a category has no translation yet), so callers never
+ *  need a second, hard-coded category list to show Hindi labels. */
 export function getCropsByCategory() {
+  const translations = (raw && raw.category_translations) || {};
   const groups = [];
   const index = new Map();
   for (const crop of getCrops()) {
     const key = crop.category || "";
-    if (!index.has(key)) { index.set(key, groups.length); groups.push({ category: key, crops: [] }); }
+    if (!index.has(key)) {
+      index.set(key, groups.length);
+      groups.push({ category: key, categoryHi: translations[key] || key, crops: [] });
+    }
     groups[index.get(key)].crops.push(crop);
   }
   return groups;

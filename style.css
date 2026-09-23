@@ -104,20 +104,25 @@ p { margin: 0 0 8px; }
 #app { min-height: 100vh; display: flex; flex-direction: column; }
 
 .ks-ticker {
-  overflow: hidden; background: var(--danger-c); color: #fff;
-  padding: 7px 0; font-size: 13px; font-weight: 600; white-space: nowrap;
+  position: relative; overflow: hidden; background: var(--danger-c); color: #fff;
+  padding: 8px 0; font-size: 13px; font-weight: 600; white-space: nowrap; height: 34px;
 }
 .ks-ticker-track {
-  display: inline-flex; width: max-content;
-  animation: ks-ticker-scroll 22s linear infinite;
+  position: absolute; left: 0; top: 50%;
+  white-space: nowrap; will-change: transform;
+  animation: ks-ticker-scroll 16s linear infinite;
 }
-.ks-ticker-track span { padding-right: 48px; }
 @keyframes ks-ticker-scroll {
-  from { transform: translateX(0); }
-  to { transform: translateX(-50%); }
+  /* Bug fix: the track used to start already at translateX(0) — i.e.
+     mid-message rather than off-screen — which read as "starting from
+     the middle of the screen". It now always starts fully outside the
+     left edge and travels smoothly across to the right on every single
+     loop, so there's never a jump/clip on restart. */
+  from { transform: translate(-100%, -50%); }
+  to   { transform: translate(100vw, -50%); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ks-ticker-track { animation: none; overflow-x: auto; }
+  .ks-ticker-track { animation: none; position: static; transform: none; overflow-x: auto; }
 }
 
 .topbar {
@@ -242,6 +247,12 @@ main { flex: 1; width: 100%; max-width: 1280px; margin: 0 auto; padding: 20px 22
 .btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn svg { width: 17px; height: 17px; }
 .link-btn { background: none; border: 0; color: var(--accent-strong); cursor: pointer; padding: 2px; font-size: 14px; text-decoration: underline; }
+.demo-link-btn {
+  display: inline-flex; align-items: center; gap: 5px; background: none; border: 0;
+  color: var(--text-muted); cursor: pointer; padding: 2px; font-size: 13.5px; font-weight: 600;
+}
+.demo-link-btn svg { width: 15px; height: 15px; }
+.demo-link-btn:hover { color: var(--accent-strong); }
 
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .field label { font-size: 13.5px; font-weight: 600; color: var(--text); }
@@ -472,6 +483,11 @@ th:last-child, td:last-child { text-align: right; }
 .kpi { padding: 14px; }
 .kpi .kpi-label { font-size: 12px; color: var(--text-muted); }
 .kpi .kpi-value { font-size: 24px; font-weight: 700; margin-top: 4px; font-family: "Tiro Devanagari Hindi", Georgia, serif; }
+.kpi-link {
+  display: block; width: 100%; text-align: left; font: inherit; color: inherit;
+  border: 1px solid var(--line); cursor: pointer; transition: border-color 0.15s;
+}
+.kpi-link:hover { border-color: var(--accent-strong); }
 
 .queue-row { display: flex; align-items: center; gap: 12px; padding: 11px 4px; border-bottom: 1px solid var(--line); }
 .queue-row:last-child { border-bottom: 0; }

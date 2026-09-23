@@ -295,6 +295,18 @@ service cloud.firestore {
         && request.resource.data.get('queueUids', []) is list
         && request.resource.data.get('queueUids', []).size() <= 50;
 
+      // Center > "Share Live Location" (spec item 14): the center's own
+      // browser explicitly shares its current position — never asked for
+      // during Government's registration flow (spec item 13). Only these
+      // two fields, and only by that center itself.
+      allow update: if isActiveCenter()
+        && callerCenterId() == centerId
+        && onlyChanged(['latitude', 'longitude'])
+        && request.resource.data.latitude is number
+        && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90
+        && request.resource.data.longitude is number
+        && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180;
+
       // Government activate/deactivate — Spark-plan direct client write
       // (replaces the old Cloud Function call). Only govStatus and status
       // may change through this path, so a Government caller can never
@@ -576,9 +588,9 @@ service cloud.firestore {
 
       allow create: if signedIn() && validPurchase(purchaseId);
 
-      // ---- Payment lifecycle (spec items 7-11) ----
+      // ---- Payment lifecycle (spec items 7-11, 27-28) ----
       // Center > Pending Payment > "Mark Payment": moves its OWN purchase
-      // from 'pending' to 'processing' and records the actual amount paid.
+      // from 'pending' to 'paid' and records the actual amount paid.
       // Nothing else about the purchase (crop/quantity/farmer/etc.) can
       // change through this path.
       function centerMarksPaid() {
@@ -587,20 +599,20 @@ service cloud.firestore {
           && resource.data.centerId == callerCenterId()
           && resource.data.paymentStatus == 'pending'
           && onlyChanged(['paymentStatus', 'paidAmount', 'paidAt', 'paidBy'])
-          && d.paymentStatus == 'processing'
+          && d.paymentStatus == 'paid'
           && d.paidAmount is number && d.paidAmount > 0 && d.paidAmount <= 10000000
           && d.paidAt == request.time
           && d.paidBy == request.auth.uid;
       }
       // Farmer > Purchase history > "Payment Received": the farmer who
-      // owns this purchase explicitly confirms it, moving 'processing' to
+      // owns this purchase explicitly confirms it, moving 'paid' to
       // 'confirmed'. ("Payment Not Received" instead opens the existing
       // paymentRequests issue-report flow and does not touch this doc.)
       function farmerConfirmsPaid() {
         let d = request.resource.data;
         return isActiveFarmer()
           && resource.data.farmerId == request.auth.uid
-          && resource.data.paymentStatus == 'processing'
+          && resource.data.paymentStatus == 'paid'
           && onlyChanged(['paymentStatus', 'confirmedAt', 'confirmedBy'])
           && d.paymentStatus == 'confirmed'
           && d.confirmedAt == request.time
@@ -717,17 +729,28 @@ service cloud.firestore {
       allow get: if signedIn() && resource.data.userId == request.auth.uid;
       allow list: if signedIn() && resource.data.userId == request.auth.uid;
       allow create: if signedIn() && validServedNotification(notificationId);
-      allow update, delete: if false;
+      allow update: if false;
+      // Spec item 22: a notification older than 24h from its own createdAt
+      // is deletable by (only) the Farmer it belongs to. True guaranteed
+      // server-side auto-deletion at exactly +24h isn't possible on Spark
+      // (no Cloud Function/TTL trigger here) — this only removes it the
+      // next time that farmer's own notif listener runs, which is also
+      // why the UI independently hides anything past 24h regardless of
+      // whether the delete has happened yet.
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid
+        && resource.data.createdAt is timestamp
+        && resource.data.createdAt < request.time - duration.value(24, 'h');
     }
 
     // ------------------------------------------------------------------
     // Payment / issue requests a farmer raises against one of their own
     // real purchases (purchases/{purchaseId}, the token-linked collection
-    // above). Every request is visible to BOTH the Center that made the
-    // purchase AND Government — requestedTo is a fixed 'both' value, not
-    // a farmer-chosen destination, so neither side is ever silently left
-    // out. Spark-plan: onSnapshot() gives both dashboards a live alert
-    // with no Cloud Function / polling needed.
+    // above). The farmer picks exactly ONE recipient (routedTo: 'center'
+    // or 'gov') — only that side ever gets the alert, never both, never
+    // neither. Spark-plan: onSnapshot() gives that one dashboard a live
+    // alert with no Cloud Function / polling needed. A 'resolved' request
+    // is deletable 5 hours after resolvedAt (see resolvedRequestExpired()
+    // below) — client-triggered, since Spark has no server-side TTL/cron.
     // ------------------------------------------------------------------
     match /paymentRequests/{id} {
       function validPaymentRequest() {
@@ -737,11 +760,11 @@ service cloud.firestore {
         return isActiveFarmer()
           && d.keys().hasAll([
             'farmerId','farmerName','farmerMobile','centerId','centerName','issueType','description',
-            'purchaseId','crop','quantity','amount','requestedTo','status','createdAt'
+            'purchaseId','crop','quantity','amount','routedTo','status','createdAt'
           ])
           && d.keys().hasOnly([
             'farmerId','farmerName','farmerMobile','centerId','centerName','issueType','description',
-            'purchaseId','crop','quantity','amount','requestedTo','status','createdAt'
+            'purchaseId','crop','quantity','amount','routedTo','status','createdAt'
           ])
           && d.farmerId == request.auth.uid
           && d.farmerName == fm.name
@@ -757,34 +780,47 @@ service cloud.firestore {
           && d.amount == p.amount
           && d.issueType in ['payment_delayed', 'incorrect_amount', 'quantity_issue', 'other']
           && d.description is string && d.description.size() <= 500
-          && d.requestedTo == 'both'
+          && d.routedTo in ['center', 'gov']
           && d.status == 'open'
           && d.createdAt == request.time;
       }
+      function resolvedRequestExpired() {
+        return resource.data.status == 'resolved'
+          && resource.data.resolvedAt is timestamp
+          && resource.data.resolvedAt < request.time - duration.value(5, 'h');
+      }
 
       allow get: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
-        || (isActiveCenter() && resource.data.centerId == callerCenterId())
-        || isActiveGov();
+        || (isActiveCenter() && resource.data.routedTo == 'center' && resource.data.centerId == callerCenterId())
+        || (isActiveGov() && resource.data.routedTo == 'gov');
 
       allow list: if (isActiveFarmer() && resource.data.farmerId == request.auth.uid)
-        || (isActiveCenter() && resource.data.centerId == callerCenterId())
-        || isActiveGov();
+        || (isActiveCenter() && resource.data.routedTo == 'center' && resource.data.centerId == callerCenterId())
+        || (isActiveGov() && resource.data.routedTo == 'gov');
 
       allow create: if signedIn() && validPaymentRequest();
 
-      // Every payment request is visible to BOTH its own Center and
-      // Government (spec item 4/17) — either may move the status
-      // forward; nothing else on the document changes.
+      // Only the ONE side the farmer routed this to may move the status
+      // forward; 'resolved' also stamps resolvedAt (server time, not
+      // client-supplied) so the 5-hour expiry above can be enforced.
       allow update: if (
-        (isActiveCenter() && resource.data.centerId == callerCenterId()
-          && onlyChanged(['status'])
-          && request.resource.data.status in ['acknowledged', 'under_review', 'resolved'])
-        || (isActiveGov()
-          && onlyChanged(['status'])
-          && request.resource.data.status in ['acknowledged', 'under_review', 'resolved'])
+        (isActiveCenter() && resource.data.routedTo == 'center' && resource.data.centerId == callerCenterId()
+          && ((onlyChanged(['status']) && request.resource.data.status in ['acknowledged', 'under_review'])
+            || (onlyChanged(['status', 'resolvedAt']) && request.resource.data.status == 'resolved' && request.resource.data.resolvedAt == request.time)))
+        || (isActiveGov() && resource.data.routedTo == 'gov'
+          && ((onlyChanged(['status']) && request.resource.data.status in ['acknowledged', 'under_review'])
+            || (onlyChanged(['status', 'resolvedAt']) && request.resource.data.status == 'resolved' && request.resource.data.resolvedAt == request.time)))
       );
 
-      allow delete: if false;
+      // Spec item 23: a client (never an unrelated user) may delete a
+      // request ONLY once it is resolved AND more than 5 hours past
+      // resolvedAt, and only the side it was routed to. An unresolved —
+      // or still-fresh — request can never be deleted by anyone but the
+      // rules below don't even give that path to begin with.
+      allow delete: if resolvedRequestExpired() && (
+        (isActiveCenter() && resource.data.routedTo == 'center' && resource.data.centerId == callerCenterId())
+        || (isActiveGov() && resource.data.routedTo == 'gov')
+      );
     }
 
     // ------------------------------------------------------------------
@@ -817,14 +853,25 @@ service cloud.firestore {
 
       allow create: if isActiveGov() && validAnnouncement();
 
-      // Government may only ever flip `active` after creation — the
-      // message/expiry/author of a published announcement can't be
-      // silently rewritten later.
-      allow update: if isActiveGov()
-        && onlyChanged(['active'])
-        && request.resource.data.active is bool;
+      // Government may flip `active` alone (Deactivate/Reactivate), OR
+      // edit message/expiresAt together (Edit) — but never touch
+      // createdBy/createdAt, and never both message and active in the
+      // same write (Edit always resends the current `active` value
+      // unchanged, so in practice this just means: message+expiresAt
+      // together, or active alone).
+      allow update: if isActiveGov() && (
+        (onlyChanged(['active']) && request.resource.data.active is bool)
+        || (onlyChanged(['message', 'active', 'expiresAt'])
+          && request.resource.data.message is string
+          && request.resource.data.message.size() > 0 && request.resource.data.message.size() <= 300
+          && request.resource.data.active is bool
+          && (request.resource.data.expiresAt == null || request.resource.data.expiresAt is timestamp))
+      );
 
-      allow delete: if false;
+      // Spec item 2: Delete works from the same Government management
+      // screen as Create/Edit/Deactivate — any announcement, active or
+      // not, only by Government.
+      allow delete: if isActiveGov();
     }
 
     match /rateLimits/{key} {

@@ -2,6 +2,18 @@
   "version": "1.0.0",
   "name": "Kisan Setu Crop Master",
   "description": "Centralized crop list for farmer crop selection. Keep UI labels and stored IDs separate.",
+  "category_translations": {
+    "Cereals": "अनाज",
+    "Millets": "मोटे अनाज",
+    "Pulses": "दलहन",
+    "Oilseeds": "तिलहन",
+    "Commercial Crops": "व्यावसायिक फसलें",
+    "Fiber Crops": "रेशेदार फसलें",
+    "Vegetables & Tubers": "सब्जियां और कंद",
+    "Spices": "मसाले",
+    "Plantation Crops": "बागानी फसलें",
+    "Fruits": "फल"
+  },
   "crops": [
     {
       "id": "wheat",

@@ -5,7 +5,7 @@ import {
   sendPasswordResetEmail, GoogleAuthProvider, signInWithPopup
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
-  doc, getDoc, getDocs, setDoc, updateDoc, collection, query, where, orderBy,
+  doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, collection, query, where, orderBy,
   limit, onSnapshot, serverTimestamp, Timestamp, writeBatch, getCountFromServer
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 import * as locationAdapter from "./data/locationAdapter.js";
@@ -99,6 +99,11 @@ const I18N = {
     slot: "समय", queue_position: "कतार में स्थान", cancel_token: "टोकन रद्द करें", cancel_token_confirm_title: "टोकन रद्द करें?",
     cancel_token_confirm_body: "रद्द करने के बाद यह टोकन वापस नहीं लिया जा सकता।",
     yes_cancel: "हाँ, रद्द करें", no_keep: "नहीं, रहने दें",
+    edit_announcement: "संपादित करें", delete_announcement: "हटाएं", yes_delete: "हाँ, हटाएं",
+    delete_announcement_confirm_title: "घोषणा हटाएं?", delete_announcement_confirm_body: "यह घोषणा स्थायी रूप से हट जाएगी और किसान/केंद्र की टिकर से तुरंत गायब हो जाएगी। यह पूर्ववत नहीं किया जा सकता।",
+    filter: "फ़िल्टर", filter_all: "सभी", filter_open: "खुला", filter_closed: "बंद",
+    search_farmer_placeholder: "किसान खोजें... (नाम, मोबाइल, यूज़रनेम)",
+    share_live_location: "लाइव स्थान साझा करें", location_shared: "स्थान साझा किया गया", location_not_shared: "स्थान साझा नहीं किया गया",
     purchase_history: "पिछली खरीद", no_history: "अभी कोई खरीद दर्ज नहीं है", no_history_desc: "आपकी पिछली खरीद यहाँ दिखेगी।",
     crop: "फ़सल", quantity: "मात्रा", rate: "दर", total: "कुल राशि", grade: "ग्रेड", payment_status: "भुगतान स्थिति",
     paid: "भुगतान हुआ", pending: "लंबित", processing: "प्रक्रिया में",
@@ -204,6 +209,8 @@ const I18N = {
     no_announcements: "कोई घोषणा नहीं", announcement_created: "घोषणा प्रकाशित हुई",
     time_unavailable: "समय अनुपलब्ध", share_location: "स्थान साझा करें", activate: "सक्रिय करें", token_id_label: "टोकन",
     issue_reaches_both: "यह शिकायत केंद्र और शासन दोनों को दिखेगी।",
+    preferences: "प्राथमिकताएं", theme: "थीम", theme_light: "हल्का", theme_dark: "गहरा",
+    send_report_to: "किसे भेजें", route_center: "केंद्र", route_gov: "सरकार",
   },
   en: {
     brand: "Kisan Setu", tagline: "Connecting farmers and procurement centers, simply.",
@@ -245,6 +252,11 @@ const I18N = {
     slot: "Slot", queue_position: "Queue position", cancel_token: "Cancel token", cancel_token_confirm_title: "Cancel this token?",
     cancel_token_confirm_body: "Once cancelled, this token cannot be restored.",
     yes_cancel: "Yes, cancel", no_keep: "No, keep it",
+    edit_announcement: "Edit", delete_announcement: "Delete", yes_delete: "Yes, delete",
+    delete_announcement_confirm_title: "Delete announcement?", delete_announcement_confirm_body: "This announcement will be permanently deleted and disappear from the Farmer/Center ticker immediately. This cannot be undone.",
+    filter: "Filter", filter_all: "All", filter_open: "Open", filter_closed: "Closed",
+    search_farmer_placeholder: "Search farmer... (name, mobile, username)",
+    share_live_location: "Share Live Location", location_shared: "Location shared", location_not_shared: "Location not shared",
     purchase_history: "Purchase history", no_history: "No purchases on record", no_history_desc: "Your past purchases will appear here.",
     crop: "Crop", quantity: "Quantity", rate: "Rate", total: "Total amount", grade: "Grade", payment_status: "Payment status",
     paid: "Paid", pending: "Pending", processing: "Processing",
@@ -350,6 +362,8 @@ const I18N = {
     no_announcements: "No announcements", announcement_created: "Announcement published",
     time_unavailable: "Time unavailable", share_location: "Share location", activate: "Activate", token_id_label: "Token",
     issue_reaches_both: "This report is visible to both the Center and Government.",
+    preferences: "Preferences", theme: "Theme", theme_light: "Light", theme_dark: "Dark",
+    send_report_to: "Send Report To", route_center: "Center", route_gov: "Government",
   },
 };
 function t(key) { return (I18N[store.lang] && I18N[store.lang][key]) || I18N.hi[key] || key; }
@@ -380,6 +394,8 @@ const store = {
   forgotData: {},
   captcha: { a: 1, b: 1 },
   sortBy: "nearest",
+  govCenterFilter: "all",
+  govFarmerSearch: "",
   draft: null,
   forcePasswordChange: false,
   _unsub: {},
@@ -856,7 +872,7 @@ function cropsStepHtml(selected) {
   const groups = cropsAdapter.getCropsByCategory();
   return `<p class="tiny muted mb-1">${t("main_crops_hint")}</p>
     ${groups.map((g) => `
-      <p class="crop-group-title">${esc(g.category || "")}</p>
+      <p class="crop-group-title">${esc(store.lang === "hi" ? (g.categoryHi || g.category || "") : (g.category || ""))}</p>
       <div class="crop-grid">${g.crops.map((c) => `
         <label class="crop-chip"><input type="checkbox" name="crops" value="${esc(c.code)}" ${selected.includes(c.code) ? "checked" : ""}>
           <span>${esc(store.lang === "hi" ? c.nameHi : c.name)}</span></label>`).join("")}</div>`).join("")}`;
@@ -1039,6 +1055,10 @@ function captchaHtml() {
   </div>`;
 }
 
+function demoLinkHtml() {
+  return `<button type="button" class="demo-link-btn" id="go-demo">${ic("play", 14)}${t("try_demo")}</button>`;
+}
+
 function loginFormHtml() {
   if (store.authTab === "farmer") {
     return `<form id="login-form" novalidate>
@@ -1050,7 +1070,7 @@ function loginFormHtml() {
           <input id="lf-password" name="password" type="password" autocomplete="current-password" required>
         </div></div>
       ${captchaHtml()}
-      <div class="auth-links-row"><span></span><button type="button" class="link-btn" id="go-forgot">${t("forgot_password")}</button></div>
+      <div class="auth-links-row">${demoLinkHtml()}<button type="button" class="link-btn" id="go-forgot">${t("forgot_password")}</button></div>
       <button class="btn block mt-2" type="submit">${t("sign_in")}</button>
       <div class="auth-divider"><span>${t("or_divider")}</span></div>
       <button type="button" class="btn ghost block google-btn" id="go-google">${ic("google", 16)}${t("continue_with_google")}</button>
@@ -1066,7 +1086,7 @@ function loginFormHtml() {
           <button type="button" class="password-toggle" data-toggle="lf-cpassword" aria-label="${t("show_password")}">${ic("eye", 16)}</button>
           <input id="lf-cpassword" name="password" type="password" autocomplete="current-password" required>
         </div></div>
-      <div class="auth-links-row"><span></span><button type="button" class="link-btn" id="go-forgot">${t("forgot_password")}</button></div>
+      <div class="auth-links-row">${demoLinkHtml()}<button type="button" class="link-btn" id="go-forgot">${t("forgot_password")}</button></div>
       <button class="btn block mt-2" type="submit">${t("sign_in")}</button>
     </form>`;
   }
@@ -1078,6 +1098,7 @@ function loginFormHtml() {
         <input id="lf-gpassword" name="password" type="password" autocomplete="current-password" required>
       </div></div>
     ${captchaHtml()}
+    <div class="auth-links-row">${demoLinkHtml()}<span></span></div>
     <button class="btn block mt-2" type="submit">${t("sign_in")}</button>
   </form>`;
 }
@@ -1135,8 +1156,6 @@ function screenLogin() {
           ${roleCard("gov", "users", t("role_gov"))}
         </div>
         <div id="login-form-slot">${loginFormHtml()}</div>
-        <div class="auth-divider"><span>${t("or_divider")}</span></div>
-        <button type="button" class="btn ghost block demo-cta-btn" id="go-demo">${ic("play", 16)}${t("try_demo")}</button>
         <div class="demo-picker" id="demo-picker" hidden>
           <p class="tiny muted mb-1">${t("demo_pick_role")}</p>
           <div class="demo-role-grid">
@@ -1361,8 +1380,8 @@ function roleLabel() {
 }
 function navItemsFor(role) {
   if (role === "farmer") return [["home", "mapPin", t("nav_home")], ["token", "ticket", t("nav_token")], ["history", "history", t("nav_history")], ["notif", "bell", t("nav_notif")], ["help", "help", t("nav_help")]];
-  if (role === "center") return [["queue", "users", t("nav_queue")], ["pending", "ticket", t("nav_pending_payment")], ["capacity", "settings", t("nav_capacity")], ["payments", "alert", t("nav_payments")], ["notif", "bell", t("nav_notif")], ["settings", "user", t("nav_settings")]];
-  return [["overview", "chart", t("nav_overview")], ["centers", "building", t("nav_centers")], ["farmers", "users", t("nav_farmers")], ["register", "plus", t("nav_register")], ["announce", "bell", t("announcements_title")], ["alerts", "alert", t("nav_alerts")], ["settings", "settings", t("nav_settings")]];
+  if (role === "center") return [["queue", "users", t("nav_queue")], ["pending", "ticket", t("nav_pending_payment")], ["capacity", "settings", t("nav_capacity")], ["payments", "alert", t("nav_payments")], ["notif", "bell", t("nav_notif")]];
+  return [["overview", "chart", t("nav_overview")], ["centers", "building", t("nav_centers")], ["farmers", "users", t("nav_farmers")], ["register", "plus", t("nav_register")], ["announce", "bell", t("announcements_title")], ["alerts", "alert", t("nav_alerts")]];
 }
 function currentTabKey() { return store.profile.role === "farmer" ? store.farmerTab : store.profile.role === "center" ? store.centerTab : store.govTab; }
 function setTabKey(k) {
@@ -1383,8 +1402,6 @@ function appShellHtml(bodyHtml) {
     <nav class="top-tabs">${items.map(([k, icon, label]) => `<button data-tab="${k}" aria-current="${active === k}">${ic(icon, 16)}${label}</button>`).join("")}</nav>
     <div class="spacer"></div>
     <div class="topbar-actions">
-      ${langToggleHtml()}
-      <button class="icon-btn" id="theme-toggle" aria-label="${t("toggle_theme")}">${ic(store.theme === "dark" ? "sun" : "moon", 17)}</button>
       <div class="account-menu">
         <button class="account-btn" id="account-btn"><span class="account-avatar">${esc((roleLabel() || "?").slice(0, 1))}</span>${ic("chevDown", 15)}</button>
         <div class="account-panel ${store.accountOpen ? "open" : ""}" id="account-panel">
@@ -1850,13 +1867,14 @@ function subscribeFarmerHistory() {
     if (qs.empty) { paint("farmer-history", emptyState("history", t("no_history"), t("no_history_desc"))); return; }
     const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
     paint("farmer-history", `<div class="card">${rows.map((p) => {
-      const badgeCls = p.paymentStatus === "confirmed" || p.paymentStatus === "paid" ? "green" : p.paymentStatus === "processing" ? "gold" : "muted";
+      const badgeCls = p.paymentStatus === "confirmed" ? "green" : p.paymentStatus === "paid" ? "gold" : "muted";
       const badgeLabel = t(p.paymentStatus || "pending");
-      // 'processing' = the Center has marked this paid but the farmer has
-      // not yet confirmed receipt — show the confirmation prompt from
-      // spec item 9/10 right here, driven by the live onSnapshot above so
-      // no refresh is ever needed.
-      const confirmBanner = p.paymentStatus === "processing" ? `
+      // paymentStatus 'paid' = the Center has marked this paid but the
+      // farmer has not yet confirmed receipt — show the confirmation
+      // prompt from spec item 9/10/28 right here, driven by the live
+      // onSnapshot above so no refresh is ever needed. Only 'confirmed'
+      // (the farmer's own explicit "Payment Received" click) is final.
+      const confirmBanner = p.paymentStatus === "paid" ? `
         <div class="alert warn mt-1" style="flex-direction:column;align-items:stretch;gap:6px">
           <span>${esc(t("center_marked_paid_banner").replace("{amount}", Number(p.paidAmount ?? p.amount).toLocaleString("en-IN")))}</span>
           <div class="row gap-s">
@@ -1869,7 +1887,7 @@ function subscribeFarmerHistory() {
           <div>
             <div class="row gap-s"><b>${esc(cropName(p.crop))}</b><span class="tiny muted">${fmtDateTime(p.purchaseDate)}</span></div>
             <div class="tiny muted">${esc(p.centerName || p.centerId)} · ${esc(p.quantity)} · ${t("grade")}: ${esc(p.grade || "—")}</div>
-            ${p.paymentStatus !== "processing" ? `<button class="btn ghost tiny mt-1" data-report-issue="${p.id}">${t("payment_issue")}</button>` : ""}
+            ${p.paymentStatus !== "paid" ? `<button class="btn ghost tiny mt-1" data-report-issue="${p.id}">${t("payment_issue")}</button>` : ""}
           </div>
           <span class="spacer"></span>
           <div class="amount">${fmtINR(p.amount)}<div><span class="badge ${badgeCls}">${badgeLabel}</span></div></div>
@@ -1918,12 +1936,17 @@ async function openPaymentIssueModal(purchase) {
           <option value="quantity_issue">${t("issue_quantity_issue")}</option>
           <option value="other">${t("issue_other")}</option>
         </select></div>
+      <div class="field"><label for="pi-route">${t("send_report_to")}</label>
+        <select id="pi-route" required>
+          <option value="center">${t("route_center")}</option>
+          <option value="gov">${t("route_gov")}</option>
+        </select></div>
       <div class="field"><label for="pi-desc">${t("issue_description")}</label><textarea id="pi-desc" rows="3" maxlength="500"></textarea></div>
-      <p class="tiny muted">${t("issue_reaches_both")}</p>
       <div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`,
     confirmText: t("submit"), cancelText: t("cancel"),
     getData: (root) => ({
       issueType: root.querySelector("#pi-type").value,
+      routedTo: root.querySelector("#pi-route").value,
       description: root.querySelector("#pi-desc").value.trim().slice(0, 500),
     }),
     onConfirm: async (d) => {
@@ -1934,10 +1957,9 @@ async function openPaymentIssueModal(purchase) {
           centerId: purchase.centerId, centerName: purchase.centerName,
           issueType: d.issueType, description: d.description,
           purchaseId: purchase.id, crop: purchase.crop, quantity: purchase.quantity, amount: purchase.amount,
-          // Always visible to BOTH the owning Center and Government — the
-          // farmer no longer has to choose a single destination, and
-          // neither side is ever silently left out (spec item 4).
-          requestedTo: "both", status: "open", createdAt: serverTimestamp(),
+          // The farmer explicitly picks exactly one recipient — only that
+          // side gets the alert, the other is never notified (spec item 5).
+          routedTo: d.routedTo, status: "open", createdAt: serverTimestamp(),
         }), OP_TIMEOUT_MS);
         showToast(t("request_sent"));
       } catch (e) {
@@ -1948,12 +1970,23 @@ async function openPaymentIssueModal(purchase) {
   });
 }
 
+/* Spec item 22: expired (>24h old) notifications are never shown, and are
+   best-effort deleted the next time this farmer's own listener sees them
+   (see NOTIF_EXPIRY_MS + firestore.rules — a Farmer may only ever delete
+   their own, already-24h-old notification, nothing else). */
+function isNotifExpired(n) {
+  return n.createdAt && typeof n.createdAt.toMillis === "function" && Date.now() - n.createdAt.toMillis() > NOTIF_EXPIRY_MS;
+}
 function subscribeFarmerNotif() {
   const q1 = query(collection(db, "notifications"), where("userId", "==", store.user.uid), orderBy("createdAt", "desc"), limit(20));
   store._unsub.notif = onSnapshot(q1, (qs) => {
-    if (qs.empty) { paint("farmer-notif", emptyState("bell", t("no_notifications"), t("no_notifications_desc"))); return; }
-    paint("farmer-notif", `<div class="card">${qs.docs.map((d) => {
-      const n = d.data();
+    const all = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const rows = all.filter((n) => !isNotifExpired(n));
+    all.filter(isNotifExpired).forEach((n) => {
+      deleteDoc(doc(db, "notifications", n.id)).catch((e) => console.error("[subscribeFarmerNotif/cleanup] error.code:", e && e.code, "| message:", e && e.message));
+    });
+    if (!rows.length) { paint("farmer-notif", emptyState("bell", t("no_notifications"), t("no_notifications_desc"))); return; }
+    paint("farmer-notif", `<div class="card">${rows.map((n) => {
       // "token_served" notifications carry structured fields only (a center
       // can't write free text to a farmer); the sentence is built here.
       const text = n.type === "token_served" ? t("notif_token_served").replace("{center}", n.centerName || "") : n.text;
@@ -1975,8 +2008,27 @@ function centerBody() {
   if (tab === "settings") return centerSettings();
   return "";
 }
+/* Theme + Language now live only inside Settings (Avatar → Settings),
+   never as a permanently-visible top navbar control — shared by
+   Farmer/Center/Government Settings screens. */
+function settingsPreferencesHtml() {
+  return `<h2 class="section-title">${t("preferences")}</h2>
+  <div class="card" style="max-width:420px;margin-bottom:18px">
+    <div class="field"><label>${t("theme")}</label>
+      <div class="row gap-s">
+        <button type="button" class="btn ${store.theme === "light" ? "" : "ghost"}" data-set-theme="light">${ic("sun", 16)}${t("theme_light")}</button>
+        <button type="button" class="btn ${store.theme === "dark" ? "" : "ghost"}" data-set-theme="dark">${ic("moon", 16)}${t("theme_dark")}</button>
+      </div>
+    </div>
+    <div class="field"><label>${t("language")}</label>${langToggleHtml()}</div>
+  </div>`;
+}
+function wireSettingsPreferences(root) {
+  (root || document).querySelectorAll("[data-set-theme]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.setTheme)));
+}
+
 function centerSettings() {
-  return `<h2 class="section-title">${t("change_password")}</h2>
+  return `${settingsPreferencesHtml()}<h2 class="section-title">${t("change_password")}</h2>
   <div class="card" style="max-width:420px">
     <form id="center-pw-form" novalidate>
       <div class="field"><label for="cpw-old">${t("password")}</label><input id="cpw-old" name="oldPassword" type="password" autocomplete="current-password" required></div>
@@ -1988,7 +2040,7 @@ function centerSettings() {
 }
 
 function farmerSettings() {
-  return `<h2 class="section-title">${t("change_password")}</h2>
+  return `${settingsPreferencesHtml()}<h2 class="section-title">${t("change_password")}</h2>
   <div class="card" style="max-width:420px">
     <form id="farmer-pw-form" novalidate>
       <div class="field"><label for="fpw-old">${t("password")}</label><input id="fpw-old" name="oldPassword" type="password" autocomplete="current-password" required></div>
@@ -2471,6 +2523,7 @@ function subscribeCenterCapacity() {
     const c = snap.exists() ? snap.data() : {};
     store.profile.centerName = c.centerName || store.profile.centerName;
     const govActive = c.govStatus === "active";
+    const hasLoc = typeof c.latitude === "number" && typeof c.longitude === "number";
     paint("center-capacity", `<div class="grid-2">
       <div class="card"><div class="row gap-s"><span>${t("gov_capacity_label")}</span><span class="spacer"></span>
         <b>${c.capacity != null ? `${c.capacity} ${t("quintal_per_day")}` : "—"}</b></div>
@@ -2480,6 +2533,11 @@ function subscribeCenterCapacity() {
         ${!govActive ? `<div class="tiny muted mt-1">${t("gov_inactive")}</div>` : ""}</div>
       <div class="card"><div class="row gap-s"><span>${t("counters")}</span><span class="spacer"></span>
         <button class="icon-btn" id="counters-minus">${ic("minus", 16)}</button><b>${c.counters ?? 1}</b><button class="icon-btn" id="counters-plus">${ic("plus", 16)}</button></div></div>
+      <div class="card">
+        <div class="row gap-s"><span>${t("share_live_location")}</span><span class="spacer"></span>
+          <button class="btn ghost" id="center-share-location">${ic("mapPin", 16)}${t("share_location")}</button></div>
+        <div class="tiny muted mt-1">${hasLoc ? `${t("location_shared")} (${c.latitude.toFixed(4)}, ${c.longitude.toFixed(4)})` : t("location_not_shared")}</div>
+      </div>
     </div>`);
     const openBtn = document.getElementById("toggle-open");
     if (openBtn && govActive) openBtn.addEventListener("click", async () => {
@@ -2491,6 +2549,23 @@ function subscribeCenterCapacity() {
     const minus = document.getElementById("counters-minus"), plus = document.getElementById("counters-plus");
     if (minus) minus.addEventListener("click", async () => { try { await updateDoc(doc(db, "centers", store.profile.centerId), { counters: Math.max(1, (c.counters || 1) - 1) }); } catch (_) { showToast(t("network_error")); } });
     if (plus) plus.addEventListener("click", async () => { try { await updateDoc(doc(db, "centers", store.profile.centerId), { counters: Math.min(8, (c.counters || 1) + 1) }); } catch (_) { showToast(t("network_error")); } });
+    // Spec item 14: the Center explicitly requests browser Geolocation
+    // permission itself, from its own dashboard — never on page load,
+    // never on Government's behalf during registration (item 13).
+    const shareBtn = document.getElementById("center-share-location");
+    if (shareBtn) shareBtn.addEventListener("click", async () => {
+      shareBtn.disabled = true;
+      const loc = await tryGetLocation();
+      shareBtn.disabled = false;
+      if (!loc) { showToast(t("location_denied")); return; }
+      try {
+        await updateDoc(doc(db, "centers", store.profile.centerId), { latitude: loc.latitude, longitude: loc.longitude });
+        showToast(t("location_shared"));
+      } catch (e) {
+        console.error("[center-share-location] error.code:", e && e.code, "| message:", e && e.message);
+        showToast(t("network_error"));
+      }
+    });
   }, () => paint("center-capacity", emptyState("building", t("center_status"), t("network_error"))));
 }
 
@@ -2512,19 +2587,21 @@ function paymentStatusBadge(status) {
 }
 
 /* Center's real-time payment-issue inbox: onSnapshot() on paymentRequests
-   for this center's own centerId only (rules pin centerId==this center —
-   a center can never see another center's requests). Every payment
-   issue a farmer raises is visible to BOTH its center and Government
-   (requestedTo is fixed to 'both'; see firestore.rules), so this list is
-   not filtered by routing. No orderBy in the query itself — sorting is
-   done client-side below so this never depends on a composite index
-   being created in the Firebase console. */
+   routed to THIS center only (rules pin centerId==this center AND
+   routedTo=='center' — a center never sees requests the farmer sent to
+   Government instead, or another center's requests). No orderBy in the
+   query — centerId+routedTo is two equality filters, which Firestore can
+   already serve without a composite index; sorting is done client-side.
+   A resolved request is hidden (and best-effort deleted) once it's more
+   than 5 hours past resolvedAt — see RESOLVED_EXPIRY_MS. */
 function subscribeCenterPayments() {
-  const q1 = query(collection(db, "paymentRequests"), where("centerId", "==", store.profile.centerId), limit(30));
+  const q1 = query(collection(db, "paymentRequests"),
+    where("centerId", "==", store.profile.centerId), where("routedTo", "==", "center"), limit(30));
   store._unsub.centerPayments = onSnapshot(q1, (qs) => {
-    if (qs.empty) { paint("center-payments", emptyState("alert", t("no_payment_requests"), "")); return; }
-    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    const all = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const rows = all.filter((r) => !isResolvedExpired(r)).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    cleanupExpiredResolved(all.filter(isResolvedExpired));
+    if (!rows.length) { paint("center-payments", emptyState("alert", t("no_payment_requests"), "")); return; }
     paint("center-payments", `<div class="card">${rows.map((r) => {
       return `<div class="history-item" style="flex-direction:column;align-items:stretch">
         <div class="row gap-s"><b>${esc(r.farmerName)}</b><span class="tiny muted">${esc(r.farmerMobile)}</span><span class="spacer"></span>${paymentStatusBadge(r.status)}</div>
@@ -2540,17 +2617,45 @@ function subscribeCenterPayments() {
     }).join("")}</div>`);
     document.querySelectorAll("[data-pay-status]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
-      try { await updateDoc(doc(db, "paymentRequests", b.dataset.payStatus), { status: b.dataset.status }); showToast(t("saved")); }
+      try { await updatePaymentRequestStatus(b.dataset.payStatus, b.dataset.status); showToast(t("saved")); }
       catch (_) { showToast(t("network_error")); b.disabled = false; }
     }));
   }, () => paint("center-payments", emptyState("alert", t("no_payment_requests"), "")));
+}
+
+/* Spec item 23: a resolved payment request should stop appearing in
+   active alert lists 5 hours after resolvedAt. True guaranteed
+   server-side auto-deletion at exactly +5h is NOT possible on the Spark
+   plan without a Cloud Function (there is no cron/TTL trigger available
+   client-side) — see the Spark-limitations note in chat. What IS done,
+   honestly: (1) the UI never shows a resolved request past its 5-hour
+   mark, and (2) whichever authorized user (their own Center, or
+   Government) next has that request's list open after the 5 hours are
+   up deletes it for real, client-side, and only because firestore.rules
+   independently re-checks resolvedAt + 5h < now before allowing it. */
+const RESOLVED_EXPIRY_MS = 5 * 60 * 60 * 1000;
+const NOTIF_EXPIRY_MS = 24 * 60 * 60 * 1000;
+function isResolvedExpired(r) {
+  if (r.status !== "resolved" || !r.resolvedAt || typeof r.resolvedAt.toMillis !== "function") return false;
+  return Date.now() - r.resolvedAt.toMillis() > RESOLVED_EXPIRY_MS;
+}
+async function cleanupExpiredResolved(expiredRows) {
+  for (const r of expiredRows) {
+    try { await deleteDoc(doc(db, "paymentRequests", r.id)); }
+    catch (e) { console.error("[cleanupExpiredResolved] error.code:", e && e.code, "| message:", e && e.message); }
+  }
+}
+async function updatePaymentRequestStatus(id, status) {
+  const patch = { status };
+  if (status === "resolved") patch.resolvedAt = serverTimestamp();
+  await updateDoc(doc(db, "paymentRequests", id), patch);
 }
 
 /* ------------------------------------------------------------------
    Pending Payment (Center): real purchases (purchases/{id}) tied to
    THIS center whose paymentStatus is still 'pending' — the token was
    served, the purchase document exists, but the farmer hasn't been
-   paid yet. "Mark Payment" moves it to 'processing' (awaiting the
+   paid yet. "Mark Payment" moves it to 'paid' (awaiting the
    farmer's own confirmation, shown in real time in their Purchase
    History via subscribeFarmerHistory's onSnapshot — no Cloud Function
    / notification write needed for that). Never a fake/manual record:
@@ -2594,15 +2699,19 @@ function subscribeCenterPending() {
     (err) => { console.error("[subscribeCenterPending/localPurchases] error.code:", err && err.code, "| message:", err && err.message); localRows = []; render(); });
 }
 
-/* source == "token" -> purchases/{id}, moves pending -> processing and
-   waits for the farmer's own confirmation (spec items 9/10, surfaced
-   live in Farmer > Purchase history). source == "local" -> localPurchases/{id};
-   a local/walk-in entry has no guaranteed linked farmer account to send a
-   confirmation prompt to, so marking it paid there is final (pending -> paid). */
+/* Both source == "token" (purchases/{id}) and source == "local"
+   (localPurchases/{id}) move pending -> 'paid' when Center marks payment
+   (spec item 27, literal status string). For a token purchase, the
+   farmer then sees a live confirmation prompt in Purchase History (spec
+   item 28) and must explicitly click "Payment Received" to reach
+   'confirmed' — that's driven purely by which collection the document
+   lives in (Farmer's own history only ever queries `purchases`), not by
+   the status string itself. A local/walk-in entry has no guaranteed
+   linked farmer account to prompt, so 'paid' is final there. */
 function openMarkPaymentModal(purchase, source) {
   if (!purchase) return;
   const collName = source === "local" ? "localPurchases" : "purchases";
-  const nextStatus = source === "local" ? "paid" : "processing";
+  const nextStatus = "paid";
   openModal({
     title: t("mark_payment"),
     body: `<p class="tiny muted">${esc(purchase.farmerName)} · ${esc(cropName(purchase.crop))} · ${esc(purchase.quantity)} ${t("quintal_short")} · ${t("expected_amount")}: ${fmtINR(purchase.amount)}</p>
@@ -2639,7 +2748,7 @@ function openMarkPaymentModal(purchase, source) {
 function tickerHtml(rows) {
   if (!rows.length) return "";
   const text = rows.map((a) => esc(a.message)).join("      •      ");
-  return `<div class="ks-ticker" role="status"><div class="ks-ticker-track"><span>${text}</span><span aria-hidden="true">${text}</span></div></div>`;
+  return `<div class="ks-ticker" role="status"><div class="ks-ticker-track"><span>${text}</span></div></div>`;
 }
 function subscribeAnnouncementTicker() {
   const q1 = query(collection(db, "announcements"), where("active", "==", true), limit(5));
@@ -2661,13 +2770,15 @@ function govBody() {
   const tab = store.govTab;
   if (tab === "overview") return `<h2 class="section-title">${t("overview_title")}</h2><div id="gov-overview">${loadingBlock()}</div><div id="gov-today-collection" class="mt-2">${loadingBlock()}</div>`;
   if (tab === "centers") return `<h2 class="section-title">${t("nav_centers")}</h2><div id="gov-centers">${loadingBlock()}</div>`;
-  if (tab === "farmers") return `<h2 class="section-title">${t("registered_farmers")}</h2><div id="gov-farmers">${loadingBlock()}</div>`;
+  if (tab === "farmers") return `<h2 class="section-title">${t("registered_farmers")}</h2>
+    <div class="field" style="max-width:360px"><input id="gov-farmer-search" placeholder="${t("search_farmer_placeholder")}" value="${esc(store.govFarmerSearch || "")}" autocomplete="off"></div>
+    <div id="gov-farmers-results">${loadingBlock()}</div>`;
   if (tab === "register") return govRegisterForm();
   if (tab === "announce") return `<div class="row gap-s"><h2 class="section-title" style="margin:0">${t("announcements_title")}</h2><span class="spacer"></span>
       <button class="btn gold" id="new-announcement">${ic("plus", 16)}${t("create_announcement")}</button></div>
     <div id="gov-announcements">${loadingBlock()}</div>`;
   if (tab === "alerts") return `<h2 class="section-title">${t("alerts_title")}</h2><div id="gov-alerts">${loadingBlock()}</div>`;
-  if (tab === "settings") return `<div class="alert">${ic("info")}<span>${t("gov_password_note")}</span></div>`;
+  if (tab === "settings") return `${settingsPreferencesHtml()}<div class="alert">${ic("info")}<span>${t("gov_password_note")}</span></div>`;
   return "";
 }
 function govRegisterForm() {
@@ -2678,7 +2789,6 @@ function govRegisterForm() {
       <div class="field"><label for="gr-name">${t("center_name")}</label><input id="gr-name" name="centerName" value="${esc(d.centerName || "")}" required></div>
       <div class="field"><label for="gr-code">${t("center_code")}</label><input id="gr-code" name="centerCode" maxlength="8" placeholder="FTB" value="${esc(d.centerCode || "")}" required></div>
       <div id="center-location-fields">${locationStepHtml(d)}</div>
-      ${locationShareHtml(d)}
       <div class="field"><label for="gr-address">${t("village_address")}</label><input id="gr-address" name="address" placeholder="${t("village_address_hint")}" value="${esc(d.address || "")}"></div>
       <div class="grid-2">
         <div class="field"><label for="gr-capacity">${t("center_capacity")}</label><input id="gr-capacity" name="capacity" inputmode="numeric" value="${esc(d.capacity || "")}" required></div>
@@ -2700,13 +2810,23 @@ function subscribeGovOverview() {
     const centers = qs.docs.map((d) => d.data());
     const open = centers.filter((c) => c.govStatus === "active" && c.status === "open").length;
     paint("gov-overview", `<div class="kpi-grid">
-      <div class="card kpi"><div class="kpi-label">${t("total_centers")}</div><div class="kpi-value">${centers.length}</div></div>
-      <div class="card kpi"><div class="kpi-label">${t("open_centers")}</div><div class="kpi-value">${open}</div></div>
-      <div class="card kpi"><div class="kpi-label">${t("total_farmers")}</div><div class="kpi-value" id="kpi-farmers">—</div></div>
-      <div class="card kpi"><div class="kpi-label">${t("total_purchases_today")}</div><div class="kpi-value" id="kpi-purchases">—</div></div>
+      <button type="button" class="card kpi kpi-link" data-kpi="total-centers"><div class="kpi-label">${t("total_centers")}</div><div class="kpi-value">${centers.length}</div></button>
+      <button type="button" class="card kpi kpi-link" data-kpi="open-centers"><div class="kpi-label">${t("open_centers")}</div><div class="kpi-value">${open}</div></button>
+      <button type="button" class="card kpi kpi-link" data-kpi="farmers"><div class="kpi-label">${t("total_farmers")}</div><div class="kpi-value" id="kpi-farmers">—</div></button>
+      <button type="button" class="card kpi kpi-link" data-kpi="purchases"><div class="kpi-label">${t("total_purchases_today")}</div><div class="kpi-value" id="kpi-purchases">—</div></button>
     </div>`);
     loadGovFarmerCount();
     loadGovTodayPurchaseCount();
+    // Overview cards are real navigation, not just a URL/hash change
+    // (spec item 36) — each one actually switches the visible dashboard
+    // tab/state, same as clicking that nav item directly would.
+    document.querySelectorAll("[data-kpi]").forEach((b) => b.addEventListener("click", () => {
+      const kind = b.dataset.kpi;
+      if (kind === "total-centers") { store.govCenterFilter = "all"; setTabKey("centers"); }
+      else if (kind === "open-centers") { store.govCenterFilter = "open"; setTabKey("centers"); }
+      else if (kind === "farmers") { store.govFarmerSearch = ""; setTabKey("farmers"); }
+      else if (kind === "purchases") { document.getElementById("gov-today-collection")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+    }));
   });
   subscribeGovTodayCollection();
 }
@@ -2778,11 +2898,25 @@ async function loadGovTodayPurchaseCount() {
     el.textContent = "—";
   }
 }
+/* Government Centers list: same live /centers listener as before, plus a
+   client-side All/Open/Closed filter (spec item 8) that reads the exact
+   same `status` field already shown in the row and already toggled by
+   Activate/Deactivate (govToggleCenterStatus) — never a second,
+   possibly-inconsistent status concept (spec item 35). Filtering is
+   done here in JS rather than as a second Firestore `where()` so
+   switching the filter never needs a new listener or a composite index. */
 function subscribeGovCenters() {
-  store._unsub.govCentersTable = onSnapshot(collection(db, "centers"), (qs) => {
-    if (qs.empty) { paint("gov-centers", emptyState("building", t("no_centers_found"), t("no_centers_desc"))); return; }
-    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
-    paint("gov-centers", `<div class="card table-wrap"><table><tr><th>${t("center_name")}</th><th>${t("district")}</th><th>${t("center_status")}</th><th>${t("counters")}</th><th></th></tr>
+  let allRows = [];
+  const render = () => {
+    const filter = store.govCenterFilter || "all";
+    const rows = filter === "all" ? allRows : allRows.filter((c) => c.status === filter);
+    const filterBar = `<div class="row gap-s mb-2" role="group" aria-label="${t("filter")}">
+      <button class="btn ${filter === "all" ? "" : "ghost"} tiny" data-center-filter="all">${t("filter_all")}</button>
+      <button class="btn ${filter === "open" ? "" : "ghost"} tiny" data-center-filter="open">${t("filter_open")}</button>
+      <button class="btn ${filter === "closed" ? "" : "ghost"} tiny" data-center-filter="closed">${t("filter_closed")}</button>
+    </div>`;
+    if (!rows.length) { paint("gov-centers", filterBar + emptyState("building", t("no_centers_found"), t("no_centers_desc"))); wireCenterFilterButtons(); return; }
+    paint("gov-centers", `${filterBar}<div class="card table-wrap"><table><tr><th>${t("center_name")}</th><th>${t("district")}</th><th>${t("center_status")}</th><th>${t("counters")}</th><th></th></tr>
       ${rows.map((c) => { const active = c.govStatus === "active";
         return `<tr><td><b>${esc(c.centerName)}</b><div class="tiny muted">${esc(c.centerId || c.id)}</div></td><td>${esc(c.district || "—")}</td>
         <td><span class="badge ${active ? "green" : "red"}">${active ? t("gov_active") : t("gov_inactive")}</span><div class="tiny muted mt-1">${c.status === "open" ? t("open_now") : t("closed_now")}</div></td>
@@ -2793,6 +2927,7 @@ function subscribeGovCenters() {
         </div></td></tr>`;
       }).join("")}
     </table></div>`);
+    wireCenterFilterButtons();
     document.querySelectorAll("[data-toggle-center]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
       try { await govToggleCenterStatus(b.dataset.toggleCenter, b.dataset.govStatus); }
@@ -2801,7 +2936,17 @@ function subscribeGovCenters() {
     document.querySelectorAll("[data-view-center]").forEach((b) => b.addEventListener("click", () => {
       govViewCenterDetails(rows.find((c) => c.id === b.dataset.viewCenter));
     }));
-  }, () => paint("gov-centers", emptyState("building", t("no_centers_found"), t("no_centers_desc"))));
+  };
+  function wireCenterFilterButtons() {
+    document.querySelectorAll("[data-center-filter]").forEach((b) => b.addEventListener("click", () => {
+      store.govCenterFilter = b.dataset.centerFilter;
+      render();
+    }));
+  }
+  store._unsub.govCentersTable = onSnapshot(collection(db, "centers"), (qs) => {
+    allRows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+    render();
+  }, () => { allRows = []; render(); });
 }
 
 /* Government's "View Details" modal for a center. Every field the center
@@ -2858,12 +3003,19 @@ function govViewCenterDetails(c) {
    (firestore.rules: only an active Government caller may list `farmers`).
    Kept to the most recent 200 so the listener stays light; the count KPI
    on Overview uses getCountFromServer() separately for the true total. */
+/* Government farmer directory + search (spec item 9). The search input
+   itself is rendered once by govBody() (static shell) and only ever
+   wired here, once per tab activation — every re-render from typing or
+   from a fresh onSnapshot only repaints #gov-farmers-results, never the
+   input element itself, so the cursor/focus is never lost mid-keystroke. */
 function subscribeGovFarmers() {
-  const q1 = query(collection(db, "farmers"), orderBy("createdAt", "desc"), limit(200));
-  store._unsub.govFarmers = onSnapshot(q1, (qs) => {
-    if (qs.empty) { paint("gov-farmers", emptyState("users", t("no_farmers_found"), "")); return; }
-    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
-    paint("gov-farmers", `<div class="card table-wrap"><table><tr><th>${t("full_name")}</th><th>${t("mobile")}</th><th>${t("district")}</th><th></th></tr>
+  let allRows = [];
+  const render = () => {
+    const q = (store.govFarmerSearch || "").trim().toLowerCase();
+    const rows = !q ? allRows : allRows.filter((f) => [f.name, f.mobile, f.username, f.email, f.id]
+      .some((v) => v && String(v).toLowerCase().includes(q)));
+    if (!rows.length) { paint("gov-farmers-results", emptyState("users", t("no_farmers_found"), "")); return; }
+    paint("gov-farmers-results", `<div class="card table-wrap"><table><tr><th>${t("full_name")}</th><th>${t("mobile")}</th><th>${t("district")}</th><th></th></tr>
       ${rows.map((f) => `<tr><td><b>${esc(f.name)}</b><div class="tiny muted">${esc(f.username || "—")}</div></td>
         <td>${esc(f.mobile || "—")}</td><td>${esc(f.district || "—")}</td>
         <td><button class="btn ghost" data-view-farmer="${f.id}">${t("view_details")}</button></td></tr>`).join("")}
@@ -2871,7 +3023,12 @@ function subscribeGovFarmers() {
     document.querySelectorAll("[data-view-farmer]").forEach((b) => b.addEventListener("click", () => {
       govViewFarmerDetails(rows.find((f) => f.id === b.dataset.viewFarmer));
     }));
-  }, () => paint("gov-farmers", emptyState("users", t("no_farmers_found"), "")));
+  };
+  const input = document.getElementById("gov-farmer-search");
+  if (input) input.addEventListener("input", () => { store.govFarmerSearch = input.value; render(); });
+  const q1 = query(collection(db, "farmers"), orderBy("createdAt", "desc"), limit(200));
+  store._unsub.govFarmers = onSnapshot(q1, (qs) => { allRows = qs.docs.map((d) => ({ id: d.id, ...d.data() })); render(); },
+    () => { allRows = []; render(); });
 }
 
 function govViewFarmerDetails(f) {
@@ -2927,7 +3084,7 @@ function subscribeGovAlerts() {
     paint("gov-alerts", combined || `<div class="card tiny muted">${t("no_alerts")}</div>`);
     document.querySelectorAll("[data-pay-status]").forEach((b) => b.addEventListener("click", async () => {
       b.disabled = true;
-      try { await updateDoc(doc(db, "paymentRequests", b.dataset.payStatus), { status: b.dataset.status }); showToast(t("saved")); }
+      try { await updatePaymentRequestStatus(b.dataset.payStatus, b.dataset.status); showToast(t("saved")); }
       catch (_) { showToast(t("network_error")); b.disabled = false; }
     }));
   };
@@ -2943,14 +3100,15 @@ function subscribeGovAlerts() {
     render();
   }, () => { centerAlertsHtml = ""; render(); });
 
-  // Real-time payment-request alerts (onSnapshot — no polling). Government
-  // sees every valid farmer request regardless of center (requestedTo is
-  // always 'both' — see firestore.rules), and there's no orderBy here so
-  // this never depends on a composite index existing in the console.
-  const q1 = query(collection(db, "paymentRequests"), limit(30));
+  // Real-time payment-request alerts (onSnapshot — no polling), routed to
+  // Government only (routedTo=='gov' — a request the farmer sent to a
+  // Center instead never shows up here). Single equality filter, no
+  // orderBy, so this never depends on a composite index existing.
+  const q1 = query(collection(db, "paymentRequests"), where("routedTo", "==", "gov"), limit(30));
   store._unsub.govAlertsPayments = onSnapshot(q1, (qs) => {
-    const rows = qs.docs.map((d) => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    const all = qs.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const rows = all.filter((r) => !isResolvedExpired(r)).sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
+    cleanupExpiredResolved(all.filter(isResolvedExpired));
     const openCount = rows.filter((r) => r.status === "open").length;
     paymentAlertsHtml = !rows.length ? "" : `<div class="card">
       <div class="row gap-s"><b>${t("nav_payments")}</b>${openCount ? `<span class="badge red">${openCount}</span>` : ""}</div>
@@ -2977,14 +3135,18 @@ function subscribeGovAlerts() {
    — Farmer/Center only ever get read access to active announcements,
    enforced there too, never just in this UI.
 ------------------------------------------------------------------ */
-function openCreateAnnouncementModal() {
+function openAnnouncementModal(existing) {
+  const isEdit = !!existing;
+  const expiryLocal = existing && existing.expiresAt && existing.expiresAt.toDate
+    ? new Date(existing.expiresAt.toDate().getTime() - existing.expiresAt.toDate().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    : "";
   openModal({
-    title: t("create_announcement"),
-    body: `<div class="field"><label for="an-msg">${t("announcement_message")}</label><textarea id="an-msg" rows="3" maxlength="300"></textarea></div>
-      <button type="button" class="btn ghost" id="an-quick-closed" style="margin:4px 0 10px">${t("all_centers_closed_today")}</button>
-      <div class="field"><label for="an-expiry">${t("announcement_expiry")}</label><input id="an-expiry" type="datetime-local"></div>
+    title: isEdit ? t("edit_announcement") : t("create_announcement"),
+    body: `<div class="field"><label for="an-msg">${t("announcement_message")}</label><textarea id="an-msg" rows="3" maxlength="300">${esc(existing ? existing.message : "")}</textarea></div>
+      ${isEdit ? "" : `<button type="button" class="btn ghost" id="an-quick-closed" style="margin:4px 0 10px">${t("all_centers_closed_today")}</button>`}
+      <div class="field"><label for="an-expiry">${t("announcement_expiry")}</label><input id="an-expiry" type="datetime-local" value="${expiryLocal}"></div>
       <div id="modal-error" class="alert danger" role="alert" style="display:none"></div>`,
-    confirmText: t("publish_announcement"), cancelText: t("cancel"),
+    confirmText: isEdit ? t("save") : t("publish_announcement"), cancelText: t("cancel"),
     onOpen: (root) => {
       const quick = root.querySelector("#an-quick-closed");
       if (quick) quick.addEventListener("click", () => {
@@ -3001,13 +3163,19 @@ function openCreateAnnouncementModal() {
     onConfirm: async (d) => {
       try {
         if (navigator.onLine === false) throw ksError("unavailable", "browser reports offline");
-        await withTimeout(setDoc(doc(collection(db, "announcements")), {
-          message: d.message, active: true, createdBy: store.user.uid, createdAt: serverTimestamp(),
-          expiresAt: d.expiry ? Timestamp.fromDate(new Date(d.expiry)) : null,
-        }), OP_TIMEOUT_MS);
-        showToast(t("announcement_created"));
+        const expiresAt = d.expiry ? Timestamp.fromDate(new Date(d.expiry)) : null;
+        if (isEdit) {
+          await withTimeout(updateDoc(doc(db, "announcements", existing.id), {
+            message: d.message, active: existing.active, expiresAt,
+          }), OP_TIMEOUT_MS);
+        } else {
+          await withTimeout(setDoc(doc(collection(db, "announcements")), {
+            message: d.message, active: true, createdBy: store.user.uid, createdAt: serverTimestamp(), expiresAt,
+          }), OP_TIMEOUT_MS);
+        }
+        showToast(isEdit ? t("saved") : t("announcement_created"));
       } catch (e) {
-        console.error("[openCreateAnnouncementModal] error.code:", e && e.code, "| message:", e && e.message);
+        console.error("[openAnnouncementModal] error.code:", e && e.code, "| message:", e && e.message);
         showToast(t(simpleErrorKey(e)));
       }
     },
@@ -3020,7 +3188,7 @@ function wireGovAnnouncementButton() {
   // any reason (offline, a permission hiccup, a slow connection) the
   // button silently did nothing. It's now wired synchronously the moment
   // the "Announcements" tab renders, independent of the listener's state.
-  if (newBtn) newBtn.onclick = openCreateAnnouncementModal;
+  if (newBtn) newBtn.onclick = () => openAnnouncementModal(null);
 }
 function subscribeGovAnnouncements() {
   wireGovAnnouncementButton();
@@ -3033,7 +3201,9 @@ function subscribeGovAnnouncements() {
         <div class="row gap-s"><span>${esc(a.message)}</span><span class="spacer"></span><span class="badge ${a.active ? "green" : "muted"}">${a.active ? t("announcement_active") : t("announcement_inactive")}</span></div>
         <div class="tiny muted">${fmtDateTime(a.createdAt)}</div>
         <div class="row gap-s mt-1">
+          <button class="btn ghost" data-edit-announcement="${a.id}">${t("edit_announcement")}</button>
           <button class="btn ${a.active ? "ghost" : ""}" data-toggle-announcement="${a.id}" data-next="${a.active ? "false" : "true"}">${a.active ? t("deactivate_announcement") : t("activate")}</button>
+          <button class="btn danger" data-delete-announcement="${a.id}">${t("delete_announcement")}</button>
         </div>
       </div>`).join("")}</div>`);
     wireGovAnnouncementButton();
@@ -3041,6 +3211,25 @@ function subscribeGovAnnouncements() {
       b.disabled = true;
       try { await updateDoc(doc(db, "announcements", b.dataset.toggleAnnouncement), { active: b.dataset.next === "true" }); showToast(t("saved")); }
       catch (_) { showToast(t("network_error")); b.disabled = false; }
+    }));
+    document.querySelectorAll("[data-edit-announcement]").forEach((b) => b.addEventListener("click", () => {
+      openAnnouncementModal(rows.find((a) => a.id === b.dataset.editAnnouncement));
+    }));
+    document.querySelectorAll("[data-delete-announcement]").forEach((b) => b.addEventListener("click", () => {
+      const id = b.dataset.deleteAnnouncement;
+      openModal({
+        title: t("delete_announcement_confirm_title"), body: t("delete_announcement_confirm_body"),
+        confirmText: t("yes_delete"), cancelText: t("cancel"), danger: true,
+        onConfirm: async () => {
+          try {
+            await withTimeout(deleteDoc(doc(db, "announcements", id)), OP_TIMEOUT_MS);
+            showToast(t("saved"));
+          } catch (e) {
+            console.error("[deleteAnnouncement] error.code:", e && e.code, "| message:", e && e.message);
+            showToast(t(simpleErrorKey(e)));
+          }
+        },
+      });
     }));
   }, (err) => {
     console.error("[subscribeGovAnnouncements] error.code:", err && err.code, "| message:", err && err.message);
@@ -3077,21 +3266,28 @@ function attachRoleListeners() {
     if (store.govTab === "register") wireGovRegister();
     if (store.govTab === "announce") subscribeGovAnnouncements();
     if (store.govTab === "alerts") subscribeGovAlerts();
+    if (store.govTab === "settings") wireSettingsPreferences();
   }
 }
 function wireFaq() {
   document.querySelectorAll(".faq-item").forEach((item) => item.querySelector(".faq-q").addEventListener("click", () => item.classList.toggle("open")));
 }
 function wireCenterSettings() {
+  wireSettingsPreferences();
   wirePasswordChangeForm("center-pw-form");
 }
 function wireFarmerSettings() {
+  wireSettingsPreferences();
   wirePasswordChangeForm("farmer-pw-form");
 }
 function wireGovRegister() {
   const form = document.getElementById("gov-register-form");
   if (!form) return;
-  wireLocationShareButton(store.centerRegisterData);
+  // Spec item 13: Government registering a Center enters the center's
+  // stored profile/address data only — it must never be asked for
+  // browser live-location permission on the Center's behalf. (The
+  // Center shares its own live location itself, from its own
+  // dashboard — see wireCenterShareLocation.)
   wireLocationSelects(document, (level, value) => {
     const d = store.centerRegisterData;
     if (level === "state") { d.stateCode = value; d.districtCode = null; d.blockCode = null; d.villageCode = null; }
@@ -3237,7 +3433,7 @@ const DEMO_DATA = {
   ],
   purchases: [
     { crop: "गेहूँ", centerName: "बरेली मंडी केंद्र", quantity: "18 क्विंटल", amount: 39600, grade: "A", paymentStatus: "paid", dateLabel: "12 मार्च 2025" },
-    { crop: "सरसों", centerName: "नवाबगंज क्रय केंद्र", quantity: "6 क्विंटल", amount: 33000, grade: "B", paymentStatus: "processing", dateLabel: "2 फ़रवरी 2025" },
+    { crop: "सरसों", centerName: "नवाबगंज क्रय केंद्र", quantity: "6 क्विंटल", amount: 33000, grade: "B", paymentStatus: "paid", dateLabel: "2 फ़रवरी 2025" },
   ],
   centerQueueFarmers: [
     { name: "सुरेश कुमार", crop: "गेहूँ" },
